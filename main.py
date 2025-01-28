@@ -9,6 +9,7 @@ class Werewolf_1(gym.Env):
         self.num_wolf = num_wolf
         self.roles = ['werewolf', 'villager']
         self.wolves = []
+        self.agents = [f'agent_{i}' for i in range(self.num_agents)]
         self.state = {}
 
         self.comm_max = comm_rounds
@@ -40,6 +41,22 @@ class Werewolf_1(gym.Env):
         self.reset() #initializes new starting env
     
     def reset(self):
-        wolves = np.random.choice(range(self.num_agents), size = self.num_wolf)
-        roles = np.random.choice([0,1], size = self.num_agents, p = [0.75,0.25])
+        wolves = np.random.choice(range(self.num_agents), size = self.num_wolf, replace = False) #randomly choose num_wolf amount of wolves from the agents(these are index numbers)
+        self.wolves = wolves
 
+        self.phase = 1
+        self.state = { #this state should be the global state, we will define each individual agent's observation state later
+            'role': np.array([1 if i in self.wolves else 0 for i in range(self.num_agents)]),
+            'public_accusation':  np.zeros((self.num_agents, self.num_agents), dtype=np.float32),
+            'public_vote':  np.zeros((self.num_agents, self.num_agents), dtype=np.float32),
+            'public_defense':  np.zeros((self.num_agents, self.num_agents), dtype=np.float32),
+
+            'trust': np.full((self.num_agents, self.num_agents), 0.5),
+            'known_werewolves': np.array([1 if i in self.wolves else 0 for i in range(self.num_agents)]),
+            'life_status': np.ones(self.num_agents, dtype = np.int32), #1 means alive, 0 is dead
+
+            'phase' : 0,
+            'comm_round' : 0
+
+        }
+            
