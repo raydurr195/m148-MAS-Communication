@@ -59,4 +59,44 @@ class Werewolf_1(gym.Env):
             'comm_round' : 0
 
         }
+        
+        def step(self, action):
+            agent_id, target_id = action
+            reward = 0
+            done = False #game is not done
+    
+            if self.state['phase'] == 1:  # Communication phase
+                self.state['comm_round'] += 1
+                if self.state['comm_round'] >= self.comm_max:
+                    self.state['phase'] = 2
+                    self.state['comm_round'] = 0
+    
+            elif self.state['phase'] == 2:  # Voting phase
+               # Initialize vote count array
+                votes = np.zeros(self.num_agents, dtype=int)
+                
+                # Simulate voting
+                for agent in range(self.num_agents):
+                    if self.state['life_status'][agent] == 1:  # Only alive agents can vote
+                        vote = np.random.choice(self.num_agents)  # Randomly vote for an agent
+                        votes[vote] += 1
+                
+                # Determine the agent with the most votes
+                eliminated_agent = np.argmax(votes)
+                
+                # Update the state to mark the eliminated agent as dead
+                self.state['life_status'][eliminated_agent] = 0
+                
+                # Move to the next phase
+                self.state['phase'] = 3
+            elif self.state['phase'] == 3:  # Werewolf elimination phase
+                # Implement werewolf elimination logic here
+                self.state['phase'] = 1
+    
+            # Check if the game is done
+            if np.sum(self.state['alive_agents']) <= 1 or self.state['phase'] > self.max_days:
+                done = True
+    
+            return self.state, reward, done, {}
+     
             
