@@ -94,3 +94,18 @@ class werewolf():
             for agent in self.agents:
                 self.state[agent]['public_accusation'] = new_acc
                 self.state[agent]['public)defense'] = new_defense
+    
+    def step(self, actions):
+        # Update the state based on actions
+        self.update_matrices(actions)
+        
+        # Compute rewards, done flags, and new observations
+        rewards = {agent: 0 for agent in self.possible_agents}
+        dones = {agent: False for agent in self.possible_agents}
+        observations = self.get_observations()
+        
+        # Check for end of game conditions
+        if self.current_day >= self.max_days:
+            dones = {agent: True for agent in self.possible_agents}
+        
+        return observations, rewards, dones, {}
