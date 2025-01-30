@@ -13,9 +13,9 @@ class werewolf():
         self.num_wolf = num_wolf
         self.roles = ['werewolf', 'villager']
 
-        self.comm_max = comm_rounds
-        self.max_days = max_days
+        self.max_days = max_days #maximum number of days
         self.comm_max = comm_rounds #there is a maximum number of communication rounds equal to comm_rounds for phase 0
+        #we have multiple comm_rounds per day to simulate agents being able to reply to each other
 
         self.possible_agents = [f'player_{i}' for i in range(self.num_agents)]
     def action_space(self, agent):
@@ -42,15 +42,15 @@ class werewolf():
     
     def reset(self):
         #initializes a new enviornment
-        self.agents = self.possible_agents[:]
+        self.agents = self.possible_agents[:] #selects agents from possible agents
         wolves = np.random.choice(self.agent_id, size = self.num_wolf, replace = False) #randomly choose num_wolf amount of wolves from the agents(these are index numbers)
-        self.wolves = wolves
+        self.wolves = wolves #stores index number of wolves//should remember to delete the entry if wolf is eliminated
 
         self.phase = 0 #stage 0 is comm, 1 is vote, 2 is werewolf eliminate
         self.comm_round = 0 #start with a communication round of 0
-        self.day = 0
+        self.day = 0 #goes from 0 to self.max_days - 1
         
-        infos = {agent: {} for agent in self.agents}
+        infos = {agent: {} for agent in self.agents} #weird thing from petting zoo//not sure why its needed or what it does but documentation shows an empty dict works
         self.state = self.get_obs_res() #self.state should be a dictionary where each key is the name of the agent(from self.agents) and the value is the observation
 
     def get_obs_res(self):
@@ -74,8 +74,9 @@ class werewolf():
         }
             observations.update({agent : obs_n})
         return observations
+    
     def update_matrices(self, actions):
-        if self.phase == 0:
+        if self.phase == 0: #if communication phase then only update public accusations and defense
             #get old accusation and defense matrices for efficient modifications
             new_acc = self.state[self.agents[0]]['public_accusation']
             new_defense = self.state[self.agents[0]]['public_defense']
