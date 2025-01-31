@@ -101,11 +101,18 @@ class werewolf():
         
         # Compute rewards, done flags, and new observations
         rewards = {agent: 0 for agent in self.agents}
-        dones = {agent: False for agent in self.agents}
+        terminations = {agent: False for agent in self.agents}
+        truncations = {agent: False for agent in self.agents}
         observations = self.get_observations()
         
-        # Check for end of game conditions
+        # Check for end of game conditions (terminations)
         if self.current_day >= self.max_days:
-            dones = {agent: True for agent in self.agents}
+            terminations = {agent: True for agent in self.agents}
         
-        return observations, rewards, dones, {}
+        # Check if the number of werewolves equals the number of villagers
+        num_werewolves = sum(1 for agent in self.agents if self.state[agent]['role'] == 'werewolf')
+        num_villagers = sum(1 for agent in self.agents if self.state[agent]['role'] == 'villager')
+        if num_werewolves >= num_villagers:
+            terminations = {agent: True for agent in self.agents}
+        
+        return observations, rewards, terminations, truncations, {}
