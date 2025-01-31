@@ -46,7 +46,7 @@ class werewolf():
         wolves = np.random.choice(self.agent_id, size = self.num_wolf, replace = False) #randomly choose num_wolf amount of wolves from the agents(these are index numbers)
         self.wolves = wolves #stores index number of wolves//should remember to delete the entry if wolf is eliminated
 
-        self.phase = 0 #stage 0 is comm, 1 is vote, 2 is werewolf eliminate
+        self.phase = 0 #stage 0 is werewolf killing, 1 is communication, 2 is voting
         self.comm_round = 0 #start with a communication round of 0
         self.day = 0 #goes from 0 to self.max_days - 1
         
@@ -76,7 +76,7 @@ class werewolf():
         return observations
     
     def update_matrices(self, actions):
-        if self.phase == 0: #if communication phase then only update public accusations and defense
+        if self.phase == 1: #if communication phase then only update public accusations and defense
             #get old accusation and defense matrices for efficient modifications
             new_acc = self.state[self.agents[0]]['public_accusation']
             new_defense = self.state[self.agents[0]]['public_defense']
@@ -100,12 +100,12 @@ class werewolf():
         self.update_matrices(actions)
         
         # Compute rewards, done flags, and new observations
-        rewards = {agent: 0 for agent in self.possible_agents}
-        dones = {agent: False for agent in self.possible_agents}
+        rewards = {agent: 0 for agent in self.agents}
+        dones = {agent: False for agent in self.agents}
         observations = self.get_observations()
         
         # Check for end of game conditions
         if self.current_day >= self.max_days:
-            dones = {agent: True for agent in self.possible_agents}
+            dones = {agent: True for agent in self.agents}
         
         return observations, rewards, dones, {}
