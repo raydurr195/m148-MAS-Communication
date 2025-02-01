@@ -44,5 +44,5 @@ analysis = tune.run(
     stop = {"training_iteration": 100},
     config=config.to_dict(),
     checkpoint_at_end = True,
-    storage_path = "/Users/chow/Desktop/Code/werewolf agent/ray_results"
+    storage_path = "/Users/------/Desktop/Code/werewolf agent/ray_results" # Add storage path of trained data
 )
