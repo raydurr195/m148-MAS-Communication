@@ -4,7 +4,7 @@ import numpy as np
 
 from pettingzoo import ParallelEnv
 
-class werewolf():
+class Werewolf(ParallelEnv): # Added Parallel Env inside class and capital W
     metadata = {'name' : 'werewolf_v1'}
 
     def __init__(self, num_agents = 7, comm_rounds = 4, num_wolf = 1, max_days = 15):
@@ -18,6 +18,20 @@ class werewolf():
         #we have multiple comm_rounds per day to simulate agents being able to reply to each other
 
         self.possible_agents = [f'player_{i}' for i in range(self.num_agents)]
+
+    # geting the agents
+    @property
+    def num_agents(self):
+        return self._num_agents
+
+    # setting values and checks it
+    @num_agents.setter
+    def num_agents(self, value):
+        if not isinstance(value, int) or value <= 0:
+            raise ValueError("not positive")
+        self._num_agents = value
+    
+
     def action_space(self, agent):
         return spaces.MultiDiscrete([#this action space is divided into two different discrete spaces 
                 4, #this space goes from 0-3 and is used in all stages
@@ -97,6 +111,8 @@ class werewolf():
     
     def step(self, actions):
         # Update the state based on actions
+
+      
         self.update_matrices(actions)
         
         # Compute rewards, done flags, and new observations
@@ -105,6 +121,11 @@ class werewolf():
         truncations = {agent: False for agent in self.agents}
         observations = self.get_observations()
         
+        print("Rewards:", rewards) # Testing Stuff
+        print("Observations:", observations) # Testing Stuff
+
+
+
         # Check for end of game conditions (terminations)
         if self.current_day >= self.max_days:
             terminations = {agent: True for agent in self.agents}
