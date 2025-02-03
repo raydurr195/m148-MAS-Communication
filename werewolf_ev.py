@@ -18,12 +18,14 @@ class werewolf():
         #we have multiple comm_rounds per day to simulate agents being able to reply to each other
 
         self.possible_agents = [f'player_{i}' for i in range(self.num_agents)]
+    
     def action_space(self, agent):
         return spaces.MultiDiscrete([#this action space is divided into two different discrete spaces 
                 4, #this space goes from 0-3 and is used in all stages
                 #in the communication stage: 0 is lie, 1 is accuse, 2 is tell truth, 3 is defend//all other phases any entry will represent a vote action or for seer the watch option
                 self.num_agents  #the second is the target and is used in all stages
                 ]) 
+    
     def observation_space(self, agent):
         return spaces.Dict( {
             'role': spaces.MultiDiscrete([2 for i in range(self.num_agents)]), #0 is villager, 1 is werewolf
@@ -58,7 +60,7 @@ class werewolf():
         for agent in self.agents:
             role = np.zeros((self.num_agents,))
             if agent in self.wolves:
-                role[self.wolves] = 1
+                role[wolves] = 1
 
             obs_n = {
             'role': role,
@@ -75,6 +77,12 @@ class werewolf():
             observations.update({agent : obs_n})
         return observations
     
+    # helper function to kill agents
+    def update_life_status(self, target, status):
+        self.state[self.agents[0]]['life_status'][target] = status
+
+
+    """
     def update_matrices(self, actions):
         if self.phase == 1: #if communication phase then only update public accusations and defense
             #get old accusation and defense matrices for efficient modifications
@@ -94,6 +102,7 @@ class werewolf():
             for agent in self.agents:
                 self.state[agent]['public_accusation'] = new_acc
                 self.state[agent]['public_defense'] = new_defense
+    """
     
     def step(self, actions):
         """
@@ -109,7 +118,10 @@ class werewolf():
             truncations (dict) : whether the game has ended by hitting max days
 
         TODO: add verbose option??? to print state of game after each day
+        TODO: filter so that only living agents can participate
+        TODO: use the update_life_status helper function
         """
+
         # initialize rewards and termination/truncation flags
         # move the below to reset function
         rewards = {agent: 0 for agent in self.agents}
@@ -117,8 +129,17 @@ class werewolf():
         truncations = {agent: False for agent in self.agents}
         
         # actions based on current phase
+        # NIGHT
         if self.phase == 0:
             # Night phase
+            # seer sees 
+            # TODO: are we allowing multiple seers???
+            for agent,action in actions.items():
+                agent_id = int(agent.split('_')[1])
+                if self.state[agent]['role'][agent_id] == 2:  # seer role
+                    target = action[1]  # the agent the seer investigates
+                    self.seer_knowledge[agent] = (target, self.state[self.agents[0]]['role'][target])  # (target, werewolf status)
+
             # werewolves choose a target to kill
             werewolf_actions = [action[1] for agent, action in actions.items() if self.state[agent]['role'][agent] == 1]
             if werewolf_actions:
@@ -126,17 +147,23 @@ class werewolf():
                 # ^^ TODO: change this to be a choice by the agent
                 # also add a voting thing if there are multiple werewolves
                 self.state[self.agents[0]]['life_status'][target] = 0
-        
-        # TODO: add seer phase to night. 
-        # do this before werewolf phase just in case the werewolves kill the seer
 
+            self.phase = 1 # move to day
+
+
+        # DAY: communication phase
+        # TODO: what else......
         elif self.phase == 1 : 
-            # Communication phase: Players accuse/defend
-            # TODO: uhhhhhhh
-            # allow multiple communication rounds...
-            self.update_matrices(actions) # update accusation and defense matrices
+            self.accusations = {} #store accusations
+            for agent,action in actions.items():
+                # only alive agents communicate
+                if self.state[agent]['life_status'][int(agent.split('_')[1])] == 1:  
+                    target = action[1]  # agent they accuse
+                    self.accusations[agent] = target
+            self.comm_round += 1
+            if self.comm_round >= self.comm_max:
+                self.phase = 2 # move onto voting phase
 
-        
         elif self.phase == 2 :
             # Voting phase
             votes = np.zeros(self.num_agents)
