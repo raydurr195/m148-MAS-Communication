@@ -190,9 +190,9 @@ class werewolf():
             else:
                 rewards[agent] -= 2
 
-    # Check for end of game conditions (terminations)
-    if self.current_day >= self.max_days:
-        terminations = {agent: True for agent in self.agents}
+        # Check for end of game conditions (terminations)
+        if self.current_day >= self.max_days:
+            terminations = {agent: True for agent in self.agents}
 
         # Check for end of game conditions (terminations)
         if self.current_day >= self.max_days:
@@ -220,5 +220,5 @@ class werewolf():
                         rewards[agent] = 100  # Villagers win
                 else:
                     rewards[agent] = -100  # Werewolves lose
-    
+                    
         return observations, rewards, terminations, truncations, {}
