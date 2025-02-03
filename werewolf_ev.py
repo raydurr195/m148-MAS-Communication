@@ -213,19 +213,45 @@ class werewolf():
                     observations[agent]['day'] = self.day
     
 
-        
+        # Reward agents for surviving another day
+        for agent in self.agents:
+            if self.state[agent]['life_status'][int(agent.split('_')[1])] == 1:
+                rewards[agent] += 2
+            else:
+                rewards[agent] -= 2
+
+        # Check for end of game conditions (terminations)
+        if self.current_day >= self.max_days:
+            terminations = {agent: True for agent in self.agents}
+
+        # Check for end of game conditions (terminations)
+        if self.current_day >= self.max_days:
+            terminations = {agent: True for agent in self.agents}
+
         # check for terminations
         num_werewolves = sum(self.state[agent]['role'][int(agent.split('_')[1])] for agent in self.agents)
         num_villagers = sum(1 - self.state[agent]['role'][int(agent.split('_')[1])] for agent in self.agents)
 
-        if num_werewolves == 0:
-            # villagers win
+        if num_werewolves >= num_villagers:
             terminations = {agent: True for agent in self.agents}
-            # TODO FIX reward
-            # rewards = {agent: 1 if self.state[agent]['role'][int(agent.split('_')[1])] == 0 else -1 for agent in self.agents}
-        elif num_werewolves >= num_villagers:  
-            # werewolves win
+            # Assign rewards for winning or losing
+            for agent in self.agents:
+                if self.state[agent]['life_status'][int(agent.split('_')[1])] == 1:  # Check if the agent is alive
+                    if self.state[agent]['role'] == 'werewolf':
+                        rewards[agent] = 100  # Werewolves win
+                else:
+                    rewards[agent] = -100  # Villagers lose
+        elif num_werewolves == 0:
             terminations = {agent: True for agent in self.agents}
+
+            # Assign rewards for winning or losing
+            for agent in self.agents:
+                if self.state[agent]['life_status'][int(agent.split('_')[1])] == 1:  # Check if the agent is alive
+                    if self.state[agent]['role'] == 'villager':
+                        rewards[agent] = 100  # Villagers win
+                else:
+                    rewards[agent] = -100  # Werewolves lose
+                    
             # rewards = {agent: 1 if self.state[agent]['role'][int(agent.split('_')[1])] == 1 else -1 for agent in self.agents}
 
         # check for truncations
