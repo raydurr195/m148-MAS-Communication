@@ -93,26 +93,88 @@ class werewolf():
                     new_defense[agent_id, target] = new_acc[agent_id, target] + 1
             for agent in self.agents:
                 self.state[agent]['public_accusation'] = new_acc
-                self.state[agent]['public)defense'] = new_defense
+                self.state[agent]['public_defense'] = new_defense
     
     def step(self, actions):
-        # Update the state based on actions
-        self.update_matrices(actions)
-        
-        # Compute rewards, done flags, and new observations
+        """
+        Update the game state based on actions
+
+        Parameters:
+            actions (dict) : dict mapping each agent to their chosen action
+
+        Output:
+            observations (dict) : updated game state for each agent
+            rewards (dict) : rewards for each agent
+            terminations (dict) : whether the game has ended by game rules
+            truncations (dict) : whether the game has ended by hitting max days
+
+        TODO: add verbose option??? to print state of game after each day
+        """
+        # initialize rewards and termination/truncation flags
+        # move the below to reset function
         rewards = {agent: 0 for agent in self.agents}
-        terminations = {agent: False for agent in self.agents}
+        terminations = {agent: False for agent in self.agents} 
         truncations = {agent: False for agent in self.agents}
-        observations = self.get_observations()
         
-        # Check for end of game conditions (terminations)
-        if self.current_day >= self.max_days:
+        # actions based on current phase
+        if self.phase == 0:
+            # Night phase
+            # werewolves choose a target to kill
+            werewolf_actions = [action[1] for agent, action in actions.items() if self.state[agent]['role'][agent] == 1]
+            if werewolf_actions:
+                target = np.random.choice(werewolf_actions) 
+                # ^^ TODO: change this to be a choice by the agent
+                # also add a voting thing if there are multiple werewolves
+                self.state[self.agents[0]]['life_status'][target] = 0
+        
+        # TODO: add seer phase to night. 
+        # do this before werewolf phase just in case the werewolves kill the seer
+
+        elif self.phase == 1 : 
+            # Communication phase: Players accuse/defend
+            # TODO: uhhhhhhh
+            # allow multiple communication rounds...
+            self.update_matrices(actions) # update accusation and defense matrices
+
+        
+        elif self.phase == 2 :
+            # Voting phase
+            votes = np.zeros(self.num_agents)
+            for agent, action in action.items():
+                if self.state[agent]['life_status'][int(agent.split('_')[1])] == 1:
+                    # only LIVING agents can vote
+                    target = action[1]
+                    votes[target] += 1
+
+                # eliminate agent that gets the most votes
+                target = np.argmax(votes)
+                self.state[self.agents[0]]['life_status'][target] = 0
+
+                # reset phase and move to next day
+                self.phase = 0
+                self.comm_round = 0
+                self.day += 1
+
+        
+        # check for terminations
+        num_werewolves = sum(self.state[agent]['role'][int(agent.split('_')[1])] for agent in self.agents)
+        num_villagers = sum(1 - self.state[agent]['role'][int(agent.split('_')[1])] for agent in self.agents)
+
+        if num_werewolves == 0:
+            # villagers win
+            terminations = {agent: True for agent in self.agents}
+            # TODO FIX reward
+            # rewards = {agent: 1 if self.state[agent]['role'][int(agent.split('_')[1])] == 0 else -1 for agent in self.agents}
+        elif num_werewolves >= num_villagers:  
+            # werewolves win
+            terminations = {agent: True for agent in self.agents}
+            # rewards = {agent: 1 if self.state[agent]['role'][int(agent.split('_')[1])] == 1 else -1 for agent in self.agents}
+
+        # check for truncations
+        if self.day >= self.max_days:
             terminations = {agent: True for agent in self.agents}
         
-        # Check if the number of werewolves equals the number of villagers
-        num_werewolves = sum(1 for agent in self.agents if self.state[agent]['role'] == 'werewolf')
-        num_villagers = sum(1 for agent in self.agents if self.state[agent]['role'] == 'villager')
-        if num_werewolves >= num_villagers:
-            terminations = {agent: True for agent in self.agents}
-        
+        # update observations (???)
+        observations = self.get_obs_res()
+
         return observations, rewards, terminations, truncations, {}
