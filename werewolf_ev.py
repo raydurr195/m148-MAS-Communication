@@ -60,7 +60,7 @@ class werewolf():
         for agent in self.agents:
             role = np.zeros((self.num_agents,))
             if agent in self.wolves:
-                role[wolves] = 1
+                role[self.wolves] = 1
 
             obs_n = {
             'role': role,
@@ -124,13 +124,14 @@ class werewolf():
 
         # initialize rewards and termination/truncation flags
         # move the below to reset function
+        observations = self.state
         rewards = {agent: 0 for agent in self.agents}
         terminations = {agent: False for agent in self.agents} 
         truncations = {agent: False for agent in self.agents}
-        
+        phase = self.phase
         # actions based on current phase
         # NIGHT
-        if self.phase == 0:
+        if phase == 0:
             # Night phase
             # seer sees 
             # TODO: are we allowing multiple seers???
@@ -138,7 +139,7 @@ class werewolf():
                 agent_id = int(agent.split('_')[1])
                 if self.state[agent]['role'][agent_id] == 2:  # seer role
                     target = action[1]  # the agent the seer investigates
-                    self.seer_knowledge[agent] = (target, self.state[self.agents[0]]['role'][target])  # (target, werewolf status)
+                    observations[agent]['role'][target]= 1 if self.state[agent]['role'][target] == 1 else 0
 
             # werewolves choose a target to kill
             werewolf_actions = [action[1] for agent, action in actions.items() if self.state[agent]['role'][agent] == 1]
@@ -146,41 +147,71 @@ class werewolf():
                 target = np.random.choice(werewolf_actions) 
                 # ^^ TODO: change this to be a choice by the agent
                 # also add a voting thing if there are multiple werewolves
-                self.state[self.agents[0]]['life_status'][target] = 0
 
-            self.phase = 1 # move to day
+
+                #should loop through and update life status for every agent
+            self.phase = 1
+            for agent in self.agents:
+                observations[agent]['life_status'][target] = 0
+                observations[agent]['phase'] = self.phase
+
+            #return observations, rewards, terminations, truncations, {}
+            # move to day//I think we should return here, update each agents observations to have a phase equal to 1 and allow them to take more actions
 
 
         # DAY: communication phase
         # TODO: what else......
-        elif self.phase == 1 : 
-            self.accusations = {} #store accusations
+        elif phase == 1 : 
+            accusations = np.zeros((self.num_agents,self.num_agents), dtype=np.float32) #store accusations
+            defenses = np.zeros((self.num_agents,self.num_agents), dtype=np.float32)
             for agent,action in actions.items():
+                agent_id = int(agent.split('_')[1])
                 # only alive agents communicate
-                if self.state[agent]['life_status'][int(agent.split('_')[1])] == 1:  
-                    target = action[1]  # agent they accuse
-                    self.accusations[agent] = target
+                if self.state[agent]['life_status'][agent_id] == 1:  
+                    #maybe punish for voting for a dead person/voting when you are dead?
+                    if action[0] == 1:#if the agent decides to accuse another agent
+                        target = action[1]  # agent they accuse
+                        accusations[agent_id,target] +=1
+                    elif action[0] == 3: #if the agent decides to defend another agent
+                        target = action[1]
+                        defenses[agent_id,target] += 1
             self.comm_round += 1
-            if self.comm_round >= self.comm_max:
-                self.phase = 2 # move onto voting phase
+            if self.comm_round >= self.comm_max: # move onto voting phase
+                self.phase = 2
+            for agent in self.agents:
+                #update all agents accusations and defenses matrix
+                observations[agent]['public_accusation'] += accusations
+                observations[agent]['public_defense'] += defenses
+                observations[agent]['comm_round'] = self.comm_round
+                observations[agent]['phase'] = self.phase
+            
+           # return observations, rewards, terminations, truncations, {}
 
-        elif self.phase == 2 :
+
+
+        elif phase == 2 :
+
+            # first, reset phase and move to next day
+            self.phase = 0
+            self.comm_round = 0
+            self.day += 1
             # Voting phase
             votes = np.zeros(self.num_agents)
             for agent, action in action.items():
                 if self.state[agent]['life_status'][int(agent.split('_')[1])] == 1:
                     # only LIVING agents can vote
+                    #punish for voting for a dead player/a dead player voting?
                     target = action[1]
                     votes[target] += 1
 
                 # eliminate agent that gets the most votes
-                target = np.argmax(votes)
-                self.state[self.agents[0]]['life_status'][target] = 0
-
-                # reset phase and move to next day
-                self.phase = 0
-                self.comm_round = 0
-                self.day += 1
+                target = np.argmax(votes) #what if there is a split? Randomly choose 1?
+                for agent in self.agents:
+                    observations[agent]['life_status'][target] = 0
+                    observations[agent]['comm_round'] = self.comm_round
+                    observations[agent]['phase'] = self.phase
+                    observations[agent]['day'] = self.day
+    
 
         
         # check for terminations
@@ -199,9 +230,9 @@ class werewolf():
 
         # check for truncations
         if self.day >= self.max_days:
-            terminations = {agent: True for agent in self.agents}
+            truncations = {agent: True for agent in self.agents}
         
         # update observations (???)
-        observations = self.get_obs_res()
+        #note that we should be updating observations after each phase
 
         return observations, rewards, terminations, truncations, {}
