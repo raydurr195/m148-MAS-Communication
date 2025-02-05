@@ -1,13 +1,14 @@
-import gymnasium
+import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 
 from pettingzoo import ParallelEnv
 
-class werewolf():
+class werewolf(ParallelEnv):
     metadata = {'name' : 'werewolf_v1'}
 
     def __init__(self, num_agents = 7, comm_rounds = 4, num_wolf = 1, max_days = 15):
+        super().__init__()
         self.render_mode = None
         self.num_agents = num_agents
         self.num_wolf = num_wolf
@@ -24,7 +25,8 @@ class werewolf():
                 4, #this space goes from 0-3 and is used in all stages
                 #in the communication stage: 0 is lie, 1 is accuse, 2 is tell truth, 3 is defend//all other phases any entry will represent a vote action or for seer the watch option
                 self.num_agents  #the second is the target and is used in all stages
-                ]) 
+                ])
+                
     
     def observation_space(self, agent):
         return spaces.Dict( {
