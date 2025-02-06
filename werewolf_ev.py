@@ -7,10 +7,10 @@ from pettingzoo import ParallelEnv
 class werewolf(ParallelEnv):
     metadata = {'name' : 'werewolf_v1'}
 
-    def __init__(self, num_agents = 7, comm_rounds = 4, num_wolf = 1, max_days = 15):
+    def __init__(self, num_players = 7, comm_rounds = 4, num_wolf = 1, max_days = 15):
         super().__init__()
         self.render_mode = None
-        self.num_agents = num_agents
+        self.num_players = num_players
         self.num_wolf = num_wolf
         self.roles = ['werewolf', 'villager']
 
@@ -18,36 +18,36 @@ class werewolf(ParallelEnv):
         self.comm_max = comm_rounds #there is a maximum number of communication rounds equal to comm_rounds for phase 0
         #we have multiple comm_rounds per day to simulate agents being able to reply to each other
 
-        self.possible_agents = [f'player_{i}' for i in range(self.num_agents)]
+        self.possible_agents = [f'player_{i}' for i in range(self.num_players)]
     
     def action_space(self, agent):
         return spaces.MultiDiscrete([#this action space is divided into two different discrete spaces 
                 4, #this space goes from 0-3 and is used in all stages
                 #in the communication stage: 0 is lie, 1 is accuse, 2 is tell truth, 3 is defend//all other phases any entry will represent a vote action or for seer the watch option
-                self.num_agents  #the second is the target and is used in all stages
+                self.num_players  #the second is the target and is used in all stages
                 ])
                 
     
     def observation_space(self, agent):
         return spaces.Dict( {
-            'role': spaces.MultiDiscrete([2 for i in range(self.num_agents)]), #0 is villager, 1 is werewolf
-            'public_accusation': spaces.Box(low=0, high=np.inf, shape=(self.num_agents, self.num_agents), dtype=np.float32),
-            'public_vote': spaces.Box(low=0, high=np.inf, shape=(self.num_agents, self.num_agents), dtype=np.float32),
-            'public_defense': spaces.Box(low=0, high=np.inf, shape=(self.num_agents, self.num_agents), dtype=np.float32),
+            'role': spaces.MultiDiscrete([2 for i in range(self.num_players)]), #0 is villager, 1 is werewolf
+            'public_accusation': spaces.Box(low=0, high=np.inf, shape=(self.num_players, self.num_players), dtype=np.float64),
+            'public_vote': spaces.Box(low=0, high=np.inf, shape=(self.num_players, self.num_players), dtype=np.float64),
+            'public_defense': spaces.Box(low=0, high=np.inf, shape=(self.num_players, self.num_players), dtype=np.float64),
             #public_x is an nxn matrix representing the number of accusations/votes/defenses 
             #agent i(row) has levied at agent j(column)
-            'trust': spaces.Box(low=0, high=1, shape=(self.num_agents,), dtype=np.float32),
-            'life_status': spaces.MultiBinary(self.num_agents), #1 means alive, 0 is dead
+            'trust': spaces.Box(low=0, high=1, shape=(self.num_players,), dtype=np.float64),
+            'life_status': spaces.MultiBinary(self.num_players), #1 means alive, 0 is dead
 
             'phase' : spaces.Discrete(3), #shows current phase
             'comm_round' : spaces.Discrete(self.comm_max), #shows current comm round
             'day' : spaces.Discrete(self.max_days)
         })
     
-    def reset(self):
+    def reset(self, *, seed = None, options = None):
         #initializes a new enviornment
         self.agents = self.possible_agents[:] #selects agents from possible agents
-        wolves = np.random.choice(self.agent_id, size = self.num_wolf, replace = False) #randomly choose num_wolf amount of wolves from the agents(these are index numbers)
+        wolves = np.random.choice(len(self.agents), size = self.num_wolf, replace = False) #randomly choose num_wolf amount of wolves from the agents(these are index numbers)
         self.wolves = wolves #stores index number of wolves//should remember to delete the entry if wolf is eliminated
 
         self.phase = 0 #stage 0 is werewolf killing, 1 is communication, 2 is voting
@@ -56,21 +56,24 @@ class werewolf(ParallelEnv):
         
         infos = {agent: {} for agent in self.agents} #weird thing from petting zoo//not sure why its needed or what it does but documentation shows an empty dict works
         self.state = self.get_obs_res() #self.state should be a dictionary where each key is the name of the agent(from self.agents) and the value is the observation
+        obs = self.state
+        info = {agent: {} for agent in self.agents}
+        return obs, info
 
     def get_obs_res(self):
         observations = {}
         for agent in self.agents:
-            role = np.zeros((self.num_agents,))
+            role = np.zeros((self.num_players,))
             if agent in self.wolves:
                 role[self.wolves] = 1
 
             obs_n = {
             'role': role,
-            'public_accusation': np.zeros((self.num_agents,self.num_agents), dtype=np.float32),
-            'public_vote': np.zeros((self.num_agents,self.num_agents), dtype=np.float32),
-            'public_defense': np.zeros((self.num_agents,self.num_agents), dtype=np.float32),
-            'trust': np.full((self.num_agents,), 0.5, dtype=np.float32),
-            'life_status': np.ones((self.num_agents,)),
+            'public_accusation': np.zeros((self.num_players,self.num_players), dtype=np.float64),
+            'public_vote': np.zeros((self.num_players,self.num_players), dtype=np.float64),
+            'public_defense': np.zeros((self.num_players,self.num_players), dtype=np.float64),
+            'trust': np.full((self.num_players,), 0.5, dtype=np.float64),
+            'life_status': np.ones((self.num_players,)),
 
             'phase' : np.array(0),
             'comm_round' : np.array(0),
@@ -130,6 +133,7 @@ class werewolf(ParallelEnv):
         rewards = {agent: 0 for agent in self.agents}
         terminations = {agent: False for agent in self.agents} 
         truncations = {agent: False for agent in self.agents}
+        infos = {agent: {} for agent in self.agents}
         phase = self.phase
         # actions based on current phase
         # NIGHT
@@ -164,8 +168,8 @@ class werewolf(ParallelEnv):
         # DAY: communication phase
         # TODO: what else......
         elif phase == 1 : 
-            accusations = np.zeros((self.num_agents,self.num_agents), dtype=np.float32) #store accusations
-            defenses = np.zeros((self.num_agents,self.num_agents), dtype=np.float32)
+            accusations = np.zeros((self.num_players,self.num_players), dtype=np.float64) #store accusations
+            defenses = np.zeros((self.num_players,self.num_players), dtype=np.float64)
             for agent,action in actions.items():
                 agent_id = int(agent.split('_')[1])
                 # only alive agents communicate
@@ -198,7 +202,7 @@ class werewolf(ParallelEnv):
             self.comm_round = 0
             self.day += 1
             # Voting phase
-            votes = np.zeros(self.num_agents)
+            votes = np.zeros(self.num_players)
             for agent, action in action.items():
                 if self.state[agent]['life_status'][int(agent.split('_')[1])] == 1:
                     # only LIVING agents can vote
@@ -263,4 +267,4 @@ class werewolf(ParallelEnv):
         # update observations (???)
         #note that we should be updating observations after each phase
 
-        return observations, rewards, terminations, truncations, {}
+        return observations, rewards, terminations, truncations, infos
