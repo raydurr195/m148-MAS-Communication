@@ -1,12 +1,15 @@
 import gymnasium
 from gymnasium import spaces
 import numpy as np
+import torch
 from pettingzoo import ParallelEnv
 
 class werewolf(gymnasium.Env):  # Inherit from gymnasium.Env
     metadata = {'name' : 'werewolf_v1'}
 
     def __init__(self, num_agents=7, comm_rounds=4, num_wolf=1, max_days=15):
+        super().__init__()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.render_mode = None
         self.num_agents = num_agents
         self.num_wolf = num_wolf
@@ -23,624 +26,189 @@ class werewolf(gymnasium.Env):  # Inherit from gymnasium.Env
             self.num_agents  # target agent
         ])
 
-        # Define observation space
-        self.observation_space = spaces.Dict({
-            'role': spaces.MultiDiscrete([2] * self.num_agents),  # 0 is villager, 1 is werewolf
-            'public_accusation': spaces.Box(low=0, high=np.inf, shape=(self.num_agents, self.num_agents), dtype=np.float32),
-            'public_vote': spaces.Box(low=0, high=np.inf, shape=(self.num_agents, self.num_agents), dtype=np.float32),
-            'public_defense': spaces.Box(low=0, high=np.inf, shape=(self.num_agents, self.num_agents), dtype=np.float32),
-            'trust': spaces.Box(low=0, high=1, shape=(self.num_agents,), dtype=np.float32),
-            'life_status': spaces.MultiBinary(self.num_agents),  # 1 means alive, 0 is dead
-            'phase': spaces.Discrete(3),  # shows current phase
-            'comm_round': spaces.Discrete(self.comm_max),  # shows current comm round
-            'day': spaces.Discrete(self.max_days)
-        })
+        # Modify observation space to be a single Box space
+        single_obs_size = (
+            self.num_agents +  # role
+            self.num_agents * self.num_agents +  # public_accusation
+            self.num_agents * self.num_agents +  # public_vote
+            self.num_agents * self.num_agents +  # public_defense
+            self.num_agents +  # trust
+            self.num_agents +  # life_status
+            1 +  # phase
+            1 +  # comm_round
+            1   # day
+        )
+        self.observation_space = spaces.Box(
+            low=-np.inf, 
+            high=np.inf, 
+            shape=(single_obs_size,), 
+            dtype=np.float32
+        )
 
-    def reset(self, seed=None, options=None):
-        super().reset(seed=seed)
-        np.random.seed(seed)  # Set the seed for numpy random functions
-        # Initializes a new environment
-        self.agents = self.possible_agents[:]  # selects agents from possible agents
-        wolves = np.random.choice(self.num_agents, size=self.num_wolf, replace=False)  # randomly choose num_wolf amount of wolves from the agents (these are index numbers)
-        self.wolves = wolves  # stores index number of wolves//should remember to delete the entry if wolf is eliminated
-    
-        self.phase = 0  # stage 0 is werewolf killing, 1 is communication, 2 is voting
-        self.comm_round = 0  # start with a communication round of 0
-        self.day = 0  # goes from 0 to self.max_days - 1
-    
-        infos = {agent: {} for agent in self.agents}  # weird thing from petting zoo//not sure why it's needed or what it does but documentation shows an empty dict works
-        self.state = self.get_obs_res()  # self.state should be a dictionary where each key is the name of the agent (from self.agents) and the value is the observation
-        return self.state  # Return the initial observation
-
-    def get_obs_res(self):
-        observations = {}
-        for agent in self.agents:
-            role = np.zeros((self.num_agents,))
-            if int(agent.split('_')[1]) in self.wolves:
-                role[self.wolves] = 1
-
-            obs_n = {
-                'role': role,
-                'public_accusation': np.zeros((self.num_agents, self.num_agents), dtype=np.float32),
-                'public_vote': np.zeros((self.num_agents, self.num_agents), dtype=np.float32),
-                'public_defense': np.zeros((self.num_agents, self.num_agents), dtype=np.float32),
-                'trust': np.full((self.num_agents,), 0.5, dtype=np.float32),
-                'life_status': np.ones((self.num_agents,)),
-                'phase': np.array(0),
-                'comm_round': np.array(0),
-                'day': np.array(0)
-            }
-            observations.update({agent: obs_n})
-        return observations
-    
-    # helper function to kill agents
-    def update_life_status(self, target, status):
-        self.state[self.agents[0]]['life_status'][target] = status
-
-    def step(self, actions):
-        """
-        Update the game state based on actions
-
-        Parameters:
-            actions (dict) : dict mapping each agent to their chosen action
-
-        Output:
-            observations (dict) : updated game state for each agent
-            rewards (dict) : rewards for each agent
-            terminations (dict) : whether the game has ended by game rules
-            truncations (dict) : whether the game has ended by hitting max days
-        """
-        # initialize rewards and termination/truncation flags
-        observations = self.state
-        rewards = {agent: 0 for agent in self.agents}
-        terminations = {agent: False for agent in self.agents} 
-        truncations = {agent: False for agent in self.agents}
-        phase = self.phase
-
-        # actions based on current phase
-        # NIGHT
-        if phase == 0:
-            # Night phase
-            for agent, action in actions.items():
-                agent_id = int(agent.split('_')[1])
-                if self.state[agent]['role'][agent_id] == 2:  # seer role
-                    target = action[1]  # the agent the seer investigates
-                    observations[agent]['role'][target] = 1 if self.state[agent]['role'][target] == 1 else 0
-
-            # werewolves choose a target to kill
-            werewolf_actions = [action[1] for agent, action in actions.items() if self.state[agent]['role'][agent] == 1]
-            if werewolf_actions:
-                target = np.random.choice(werewolf_actions)
-                self.phase = 1
-                for agent in self.agents:
-                    observations[agent]['life_status'][target] = 0
-                    observations[agent]['phase'] = self.phase
-                    if agent == target:
-                        rewards[agent] -= 10  # Penalty for being killed
-
-        # DAY: communication phase
-        elif phase == 1:
-            accusations = np.zeros((self.num_agents, self.num_agents), dtype=np.float32)
-            defenses = np.zeros((self.num_agents, self.num_agents), dtype=np.float32)
-            for agent, action in actions.items():
-                agent_id = int(agent.split('_')[1])
-                if self.state[agent]['life_status'][agent_id] == 1:
-                    if action[0] == 1:  # accuse
-                        target = action[1]
-                        accusations[agent_id, target] += 1
-                        rewards[agent] += 1  # Reward for making an accusation
-                    elif action[0] == 3:  # defend
-                        target = action[1]
-                        defenses[agent_id, target] += 1
-                        rewards[agent] += 1  # Reward for defending
-            self.comm_round += 1
-            if self.comm_round >= self.comm_max:
-                self.phase = 2
-            for agent in self.agents:
-                observations[agent]['public_accusation'] += accusations
-                observations[agent]['public_defense'] += defenses
-                observations[agent]['comm_round'] = self.comm_round
-                observations[agent]['phase'] = self.phase
-
-        # Voting phase
-        elif phase == 2:
-            self.phase = 0
-            self.comm_round = 0
-            self.day += 1
-            votes = np.zeros(self.num_agents)
-            for agent, action in actions.items():
-                if self.state[agent]['life_status'][int(agent.split('_')[1])] == 1:
-                    target = action[1]
-                    votes[target] += 1
-            target = np.argmax(votes)
-            for agent in self.agents:
-                observations[agent]['life_status'][target] = 0
-                observations[agent]['comm_round'] = self.comm_round
-                observations[agent]['phase'] = self.phase
-                observations[agent]['day'] = self.day
-                if agent == target:
-                    rewards[agent] -= 10  # Penalty for being voted out
-
-        # Reward agents for surviving another day
-        for agent in self.agents:
-            if self.state[agent]['life_status'][int(agent.split('_')[1])] == 1:
-                rewards[agent] += 2
-
-        # Check for end of game conditions (terminations)
-        if self.day >= self.max_days:
-            terminations = {agent: True for agent in self.agents}
-
-        num_werewolves = sum(self.state[agent]['role'][int(agent.split('_')[1])] for agent in self.agents)
-        num_villagers = sum(1 - self.state[agent]['role'][int(agent.split('_')[1])] for agent in self.agents)
-
-        if num_werewolves >= num_villagers:
-            terminations = {agent: True for agent in self.agents}
-            for agent in self.agents:
-                agent_id = int(agent.split('_')[1])
-                if self.state[agent]['life_status'][agent_id] == 1:
-                    if self.state[agent]['role'][agent_id] == 1:
-                        rewards[agent] = 100  # Werewolves win
-                    else:
-                        rewards[agent] = -100  # Villagers lose
-        elif num_werewolves == 0:
-            terminations = {agent: True for agent in self.agents}
-            for agent in self.agents:
-                agent_id = int(agent.split('_')[1])
-                if self.state[agent]['life_status'][agent_id] == 1:
-                    if self.state[agent]['role'][agent_id] == 0:
-                        rewards[agent] = 100  # Villagers win
-                    else:
-                        rewards[agent] = -100  # Werewolves lose
-
-        if self.day >= self.max_days:
-            truncations = {agent: True for agent in self.agents}
-
-        return observations, rewards, terminations, truncations, {}
-    metadata = {'name' : 'werewolf_v1'}
-
-    def __init__(self, num_agents=7, comm_rounds=4, num_wolf=1, max_days=15):
-        self.render_mode = None
-        self.num_agents = num_agents
-        self.num_wolf = num_wolf
-        self.roles = ['werewolf', 'villager']
-
-        self.max_days = max_days  # maximum number of days
-        self.comm_max = comm_rounds  # maximum number of communication rounds per day
-
-        self.possible_agents = [f'player_{i}' for i in range(self.num_agents)]
-
-        # Define action space
-        self.action_space = spaces.MultiDiscrete([
-            4,  # 0: lie, 1: accuse, 2: tell truth, 3: defend
-            self.num_agents  # target agent
-        ])
-
-        # Define observation space
-        self.observation_space = spaces.Dict({
-            'role': spaces.MultiDiscrete([2] * self.num_agents),  # 0 is villager, 1 is werewolf
-            'public_accusation': spaces.Box(low=0, high=np.inf, shape=(self.num_agents, self.num_agents), dtype=np.float32),
-            'public_vote': spaces.Box(low=0, high=np.inf, shape=(self.num_agents, self.num_agents), dtype=np.float32),
-            'public_defense': spaces.Box(low=0, high=np.inf, shape=(self.num_agents, self.num_agents), dtype=np.float32),
-            'trust': spaces.Box(low=0, high=1, shape=(self.num_agents,), dtype=np.float32),
-            'life_status': spaces.MultiBinary(self.num_agents),  # 1 means alive, 0 is dead
-            'phase': spaces.Discrete(3),  # shows current phase
-            'comm_round': spaces.Discrete(self.comm_max),  # shows current comm round
-            'day': spaces.Discrete(self.max_days)
-        })
-
+        
     def reset(self, seed=None, options=None):
         if seed is not None:
-            np.random.seed(seed)  # Set the seed for numpy random functions
-        # Initializes a new environment
-        self.agents = self.possible_agents[:]  # selects agents from possible agents
-        wolves = np.random.choice(self.num_agents, size=self.num_wolf, replace=False)  # randomly choose num_wolf amount of wolves from the agents (these are index numbers)
-        self.wolves = wolves  # stores index number of wolves//should remember to delete the entry if wolf is eliminated
+            np.random.seed(seed)
+        self.agents = self.possible_agents[:]
+        wolves = np.random.choice(self.num_agents, size=self.num_wolf, replace=False)
+        self.wolves = wolves
     
-        self.phase = 0  # stage 0 is werewolf killing, 1 is communication, 2 is voting
-        self.comm_round = 0  # start with a communication round of 0
-        self.day = 0  # goes from 0 to self.max_days - 1
+        self.phase = 0
+        self.comm_round = 0
+        self.day = 0
     
-        infos = {agent: {} for agent in self.agents}  # weird thing from petting zoo//not sure why it's needed or what it does but documentation shows an empty dict works
-        self.state = self.get_obs_res()  # self.state should be a dictionary where each key is the name of the agent (from self.agents) and the value is the observation
-        return self.state  # Return the initial observation
+        # Get initial state
+        self.state = self.get_obs_res()
+        # Return just the observation for the first agent and empty info dict
+        # This assumes single-agent training where we train from player_0's perspective
+        return self._dict_to_flat_obs(self.state['player_0']), {}
+
+    def _dict_to_flat_obs(self, obs_dict):
+        # Convert all observations to tensors first
+        tensors = [
+            torch.as_tensor(obs_dict['role'], device=self.device).flatten(),
+            torch.as_tensor(obs_dict['public_accusation'], device=self.device).flatten(),
+            torch.as_tensor(obs_dict['public_vote'], device=self.device).flatten(),
+            torch.as_tensor(obs_dict['public_defense'], device=self.device).flatten(),
+            torch.as_tensor(obs_dict['trust'], device=self.device).flatten(),
+            torch.as_tensor(obs_dict['life_status'], device=self.device).flatten(),
+            torch.tensor([obs_dict['phase']], device=self.device),
+            torch.tensor([obs_dict['comm_round']], device=self.device),
+            torch.tensor([obs_dict['day']], device=self.device)
+        ]
+        
+        # Concatenate on GPU if available
+        flat_obs = torch.cat(tensors).cpu().numpy()
+        return flat_obs.astype(np.float32)
 
     def get_obs_res(self):
         observations = {}
         for agent in self.agents:
-            role = np.zeros((self.num_agents,))
+            role = torch.zeros((self.num_agents,), device=self.device)
             if int(agent.split('_')[1]) in self.wolves:
-                role[self.wolves] = 1
+                role[int(agent.split('_')[1])] = 1
 
             obs_n = {
                 'role': role,
-                'public_accusation': np.zeros((self.num_agents, self.num_agents), dtype=np.float32),
-                'public_vote': np.zeros((self.num_agents, self.num_agents), dtype=np.float32),
-                'public_defense': np.zeros((self.num_agents, self.num_agents), dtype=np.float32),
-                'trust': np.full((self.num_agents,), 0.5, dtype=np.float32),
-                'life_status': np.ones((self.num_agents,)),
-                'phase': np.array(0),
-                'comm_round': np.array(0),
-                'day': np.array(0)
+                'public_accusation': torch.zeros((self.num_agents, self.num_agents), device=self.device),
+                'public_vote': torch.zeros((self.num_agents, self.num_agents), device=self.device),
+                'public_defense': torch.zeros((self.num_agents, self.num_agents), device=self.device),
+                'trust': torch.full((self.num_agents,), 0.5, device=self.device),
+                'life_status': torch.ones((self.num_agents,), device=self.device),
+                'phase': torch.tensor([0], device=self.device),
+                'comm_round': torch.tensor([0], device=self.device),
+                'day': torch.tensor([0], device=self.device)
             }
             observations.update({agent: obs_n})
         return observations
+        
     
     # helper function to kill agents
     def update_life_status(self, target, status):
         self.state[self.agents[0]]['life_status'][target] = status
 
-    def step(self, actions):
+    def step(self, action):
+        if isinstance(action, torch.Tensor):
+            action = action.cpu().numpy()
+        
+        # Pre-allocate tensors on GPU
+        if not hasattr(self, 'cached_tensors'):
+            self.cached_tensors = {
+                'zeros': torch.zeros((self.num_agents, self.num_agents), device=self.device),
+                'ones': torch.ones(self.num_agents, device=self.device)
+            }
+        
         """
-        Update the game state based on actions
+        Update the game state based on a single action
 
         Parameters:
-            actions (dict) : dict mapping each agent to their chosen action
+            action : action for the current agent (player_0)
 
         Output:
-            observations (dict) : updated game state for each agent
-            rewards (dict) : rewards for each agent
-            terminations (dict) : whether the game has ended by game rules
-            truncations (dict) : whether the game has ended by hitting max days
+            observations : updated game state
+            reward : reward for the agent
+            terminated : whether the game has ended by game rules
+            truncated : whether the game has ended by hitting max days
+            info : additional information
         """
         # initialize rewards and termination/truncation flags
         observations = self.state
-        rewards = {agent: 0 for agent in self.agents}
-        terminations = {agent: False for agent in self.agents} 
-        truncations = {agent: False for agent in self.agents}
+        reward = 0
+        terminated = False
+        truncated = False
         phase = self.phase
 
         # actions based on current phase
         # NIGHT
         if phase == 0:
-            # Night phase
-            for agent, action in actions.items():
-                agent_id = int(agent.split('_')[1])
-                if self.state[agent]['role'][agent_id] == 2:  # seer role
-                    target = action[1]  # the agent the seer investigates
-                    observations[agent]['role'][target] = 1 if self.state[agent]['role'][target] == 1 else 0
-
-            # werewolves choose a target to kill
-            werewolf_actions = [action[1] for agent, action in actions.items() if self.state[agent]['role'][agent] == 1]
-            if werewolf_actions:
-                target = np.random.choice(werewolf_actions)
+            target = action[1]
+            if target < self.num_agents:  # Ensure valid target
                 self.phase = 1
-                for agent in self.agents:
-                    observations[agent]['life_status'][target] = 0
-                    observations[agent]['phase'] = self.phase
-                    if agent == target:
-                        rewards[agent] -= 10  # Penalty for being killed
+                self.update_life_status(target, 0)
+                for key in observations:
+                    observations[key]['life_status'][target] = 0
+                    observations[key]['phase'] = self.phase
+                if target == 0:  # if player_0 is killed
+                    reward -= 10
 
         # DAY: communication phase
         elif phase == 1:
-            accusations = np.zeros((self.num_agents, self.num_agents), dtype=np.float32)
-            defenses = np.zeros((self.num_agents, self.num_agents), dtype=np.float32)
-            for agent, action in actions.items():
-                agent_id = int(agent.split('_')[1])
-                if self.state[agent]['life_status'][agent_id] == 1:
-                    if action[0] == 1:  # accuse
-                        target = action[1]
-                        accusations[agent_id, target] += 1
-                        rewards[agent] += 1  # Reward for making an accusation
-                    elif action[0] == 3:  # defend
-                        target = action[1]
-                        defenses[agent_id, target] += 1
-                        rewards[agent] += 1  # Reward for defending
+            agent_id = 0  # player_0
+            if self.state['player_0']['life_status'][agent_id] == 1:
+                if action[0] == 1:  # accuse
+                    target = action[1]
+                    if target < self.num_agents:
+                        for key in observations:
+                            observations[key]['public_accusation'][agent_id, target] += 1
+                        reward += 1
+                elif action[0] == 3:  # defend
+                    target = action[1]
+                    if target < self.num_agents:
+                        for key in observations:
+                            observations[key]['public_defense'][agent_id, target] += 1
+                        reward += 1
+
             self.comm_round += 1
             if self.comm_round >= self.comm_max:
                 self.phase = 2
-            for agent in self.agents:
-                observations[agent]['public_accusation'] += accusations
-                observations[agent]['public_defense'] += defenses
-                observations[agent]['comm_round'] = self.comm_round
-                observations[agent]['phase'] = self.phase
+
+            for key in observations:
+                observations[key]['comm_round'] = self.comm_round
+                observations[key]['phase'] = self.phase
 
         # Voting phase
         elif phase == 2:
             self.phase = 0
             self.comm_round = 0
             self.day += 1
-            votes = np.zeros(self.num_agents)
-            for agent, action in actions.items():
-                if self.state[agent]['life_status'][int(agent.split('_')[1])] == 1:
-                    target = action[1]
-                    votes[target] += 1
-            target = np.argmax(votes)
-            for agent in self.agents:
-                observations[agent]['life_status'][target] = 0
-                observations[agent]['comm_round'] = self.comm_round
-                observations[agent]['phase'] = self.phase
-                observations[agent]['day'] = self.day
-                if agent == target:
-                    rewards[agent] -= 10  # Penalty for being voted out
+            target = action[1]
+            if target < self.num_agents:
+                self.update_life_status(target, 0)
+                for key in observations:
+                    observations[key]['life_status'][target] = 0
+                    observations[key]['comm_round'] = self.comm_round
+                    observations[key]['phase'] = self.phase
+                    observations[key]['day'] = self.day
+                if target == 0:  # if player_0 is voted out
+                    reward -= 10
 
-        # Reward agents for surviving another day
-        for agent in self.agents:
-            if self.state[agent]['life_status'][int(agent.split('_')[1])] == 1:
-                rewards[agent] += 2
+        # Reward for surviving
+        if self.state['player_0']['life_status'][0] == 1:
+            reward += 2
 
-        # Check for end of game conditions (terminations)
+        # Check for end of game conditions
         if self.day >= self.max_days:
-            terminations = {agent: True for agent in self.agents}
+            terminated = True
+            truncated = True
 
-        num_werewolves = sum(self.state[agent]['role'][int(agent.split('_')[1])] for agent in self.agents)
-        num_villagers = sum(1 - self.state[agent]['role'][int(agent.split('_')[1])] for agent in self.agents)
+        num_werewolves = sum(1 for i in self.wolves if self.state['player_0']['life_status'][i] == 1)
+        num_villagers = sum(1 for i in range(self.num_agents) if i not in self.wolves and self.state['player_0']['life_status'][i] == 1)
 
         if num_werewolves >= num_villagers:
-            terminations = {agent: True for agent in self.agents}
-            for agent in self.agents:
-                agent_id = int(agent.split('_')[1])
-                if self.state[agent]['life_status'][agent_id] == 1:
-                    if self.state[agent]['role'][agent_id] == 1:
-                        rewards[agent] = 100  # Werewolves win
-                    else:
-                        rewards[agent] = -100  # Villagers lose
+            terminated = True
+            reward = 100 if 0 in self.wolves else -100
         elif num_werewolves == 0:
-            terminations = {agent: True for agent in self.agents}
-            for agent in self.agents:
-                agent_id = int(agent.split('_')[1])
-                if self.state[agent]['life_status'][agent_id] == 1:
-                    if self.state[agent]['role'][agent_id] == 0:
-                        rewards[agent] = 100  # Villagers win
-                    else:
-                        rewards[agent] = -100  # Werewolves lose
+            terminated = True
+            reward = 100 if 0 not in self.wolves else -100
 
-        if self.day >= self.max_days:
-            truncations = {agent: True for agent in self.agents}
-
-        return observations, rewards, terminations, truncations, {}
-    metadata = {'name' : 'werewolf_v1'}
-
-    def __init__(self, num_agents = 7, comm_rounds = 4, num_wolf = 1, max_days = 15):
-        self.render_mode = None
-        self.num_agents = num_agents
-        self.num_wolf = num_wolf
-        self.roles = ['werewolf', 'villager']
-
-        self.max_days = max_days #maximum number of days
-        self.comm_max = comm_rounds #there is a maximum number of communication rounds equal to comm_rounds for phase 0
-        #we have multiple comm_rounds per day to simulate agents being able to reply to each other
-
-        self.possible_agents = [f'player_{i}' for i in range(self.num_agents)]
-        
-        self.action_space = spaces.MultiDiscrete([
-            4,  # this space goes from 0-3 and is used in all stages
-            self.num_agents  # the second is the target and is used in all stages
-        ])
-        
-        self.observation_space = spaces.Dict({
-            'role': spaces.MultiDiscrete([2] * self.num_agents),  # 0 is villager, 1 is werewolf
-            'public_accusation': spaces.Box(low=0, high=np.inf, shape=(self.num_agents, self.num_agents), dtype=np.float32),
-            'public_vote': spaces.Box(low=0, high=np.inf, shape=(self.num_agents, self.num_agents), dtype=np.float32),
-            'public_defense': spaces.Box(low=0, high=np.inf, shape=(self.num_agents, self.num_agents), dtype=np.float32),
-            'trust': spaces.Box(low=0, high=1, shape=(self.num_agents,), dtype=np.float32),
-            'life_status': spaces.MultiBinary(self.num_agents),  # 1 means alive, 0 is dead
-            'phase': spaces.Discrete(3),  # shows current phase
-            'comm_round': spaces.Discrete(self.comm_max),  # shows current comm round
-            'day': spaces.Discrete(self.max_days)
-        })
-    
-    def reset(self, seed=None, options=None):
-        super().reset(seed=seed)
-        np.random.seed(seed)  # Set the seed for numpy random functions
-        # Initializes a new environment
-        self.agents = self.possible_agents[:]  # selects agents from possible agents
-        wolves = np.random.choice(self.num_agents, size=self.num_wolf, replace=False)  # randomly choose num_wolf amount of wolves from the agents (these are index numbers)
-        self.wolves = wolves  # stores index number of wolves//should remember to delete the entry if wolf is eliminated
-    
-        self.phase = 0  # stage 0 is werewolf killing, 1 is communication, 2 is voting
-        self.comm_round = 0  # start with a communication round of 0
-        self.day = 0  # goes from 0 to self.max_days - 1
-    
-        infos = {agent: {} for agent in self.agents}  # weird thing from petting zoo//not sure why it's needed or what it does but documentation shows an empty dict works
-        self.state = self.get_obs_res()  # self.state should be a dictionary where each key is the name of the agent (from self.agents) and the value is the observation
-        return self.state  # Return the initial observation
-
-    def get_obs_res(self):
-        observations = {}
-        for agent in self.agents:
-            role = np.zeros((self.num_agents,))
-            if int(agent.split('_')[1]) in self.wolves:
-                role[self.wolves] = 1
-
-            obs_n = {
-                'role': role,
-                'public_accusation': np.zeros((self.num_agents, self.num_agents), dtype=np.float32),
-                'public_vote': np.zeros((self.num_agents, self.num_agents), dtype=np.float32),
-                'public_defense': np.zeros((self.num_agents, self.num_agents), dtype=np.float32),
-                'trust': np.full((self.num_agents,), 0.5, dtype=np.float32),
-                'life_status': np.ones((self.num_agents,)),
-                'phase': np.array(0),
-                'comm_round': np.array(0),
-                'day': np.array(0)
-            }
-            observations.update({agent: obs_n})
-        return observations
-    
-    # helper function to kill agents
-    def update_life_status(self, target, status):
-        self.state[self.agents[0]]['life_status'][target] = status
-
-
-    """
-    def update_matrices(self, actions):
-        if self.phase == 1: #if communication phase then only update public accusations and defense
-            #get old accusation and defense matrices for efficient modifications
-            new_acc = self.state[self.agents[0]]['public_accusation']
-            new_defense = self.state[self.agents[0]]['public_defense']
-            #loop through each agent and action
-            for agent, action in actions.items():
-                comm_type = action[0] #recall 0 is lie, 1 is accuse, 2 is tell truth, and 3 is defend
-                target = action[1] #this should be who an action targets
-
-                agent_id = agent.split('_')[1] #doing this so as agents are terminated and removed from self.agents we keep a good track of agent_ids
-                self.agents.index(agent)
-                if comm_type == 1: #update accusation matrix 
-                    new_acc[agent_id, target] = new_acc[agent_id, target] + 1
-                elif comm_type == 3:
-                    new_defense[agent_id, target] = new_acc[agent_id, target] + 1
-            for agent in self.agents:
-                self.state[agent]['public_accusation'] = new_acc
-                self.state[agent]['public_defense'] = new_defense
-    """
-    
-    def step(self, actions):
-        """
-        Update the game state based on actions
-
-        Parameters:
-            actions (dict) : dict mapping each agent to their chosen action
-
-        Output:
-            observations (dict) : updated game state for each agent
-            rewards (dict) : rewards for each agent
-            terminations (dict) : whether the game has ended by game rules
-            truncations (dict) : whether the game has ended by hitting max days
-
-        TODO: add verbose option??? to print state of game after each day
-        TODO: filter so that only living agents can participate
-        TODO: use the update_life_status helper function
-        """
-
-        # initialize rewards and termination/truncation flags
-        # move the below to reset function
-        observations = self.state
-        rewards = {agent: 0 for agent in self.agents}
-        terminations = {agent: False for agent in self.agents} 
-        truncations = {agent: False for agent in self.agents}
-        phase = self.phase
-        # actions based on current phase
-        # NIGHT
-        if phase == 0:
-            # Night phase
-            # seer sees 
-            # TODO: are we allowing multiple seers???
-            for agent,action in actions.items():
-                agent_id = int(agent.split('_')[1])
-                if self.state[agent]['role'][agent_id] == 2:  # seer role
-                    target = action[1]  # the agent the seer investigates
-                    observations[agent]['role'][target]= 1 if self.state[agent]['role'][target] == 1 else 0
-
-            # werewolves choose a target to kill
-            werewolf_actions = [action[1] for agent, action in actions.items() if self.state[agent]['role'][agent] == 1]
-            if werewolf_actions:
-                target = np.random.choice(werewolf_actions) 
-                # ^^ TODO: change this to be a choice by the agent
-                # also add a voting thing if there are multiple werewolves
-
-
-                #should loop through and update life status for every agent
-            self.phase = 1
-            for agent in self.agents:
-                observations[agent]['life_status'][target] = 0
-                observations[agent]['phase'] = self.phase
-                if agent == target:
-                    rewards[agent] -= 10  # Penalty for being killed
-
-            #return observations, rewards, terminations, truncations, {}
-            # move to day//I think we should return here, update each agents observations to have a phase equal to 1 and allow them to take more actions
-
-
-        # DAY: communication phase
-        # TODO: what else......
-        elif phase == 1 : 
-            accusations = np.zeros((self.num_agents,self.num_agents), dtype=np.float32) #store accusations
-            defenses = np.zeros((self.num_agents,self.num_agents), dtype=np.float32)
-            for agent,action in actions.items():
-                agent_id = int(agent.split('_')[1])
-                # only alive agents communicate
-                if self.state[agent]['life_status'][agent_id] == 1:  
-                    #maybe punish for voting for a dead person/voting when you are dead?
-                    if action[0] == 1:#if the agent decides to accuse another agent
-                        target = action[1]  # agent they accuse
-                        accusations[agent_id,target] +=1
-                        rewards[agent] += 1  # Reward for making an accusation
-                    elif action[0] == 3: #if the agent decides to defend another agent
-                        target = action[1]
-                        defenses[agent_id,target] += 1
-                        rewards[agent] += 1  # Reward for defending
-            self.comm_round += 1
-            if self.comm_round >= self.comm_max: # move onto voting phase
-                self.phase = 2
-            for agent in self.agents:
-                #update all agents accusations and defenses matrix
-                observations[agent]['public_accusation'] += accusations
-                observations[agent]['public_defense'] += defenses
-                observations[agent]['comm_round'] = self.comm_round
-                observations[agent]['phase'] = self.phase
-            
-           # return observations, rewards, terminations, truncations, {}
-
-
-
-        elif phase == 2 :
-
-            # first, reset phase and move to next day
-            self.phase = 0
-            self.comm_round = 0
-            self.day += 1
-            # Voting phase
-            votes = np.zeros(self.num_agents)
-            for agent, action in action.items():
-                if self.state[agent]['life_status'][int(agent.split('_')[1])] == 1:
-                    # only LIVING agents can vote
-                    #punish for voting for a dead player/a dead player voting?
-                    target = action[1]
-                    votes[target] += 1
-
-                # eliminate agent that gets the most votes
-                target = np.argmax(votes) #what if there is a split? Randomly choose 1?
-                for agent in self.agents:
-                    observations[agent]['life_status'][target] = 0
-                    observations[agent]['comm_round'] = self.comm_round
-                    observations[agent]['phase'] = self.phase
-                    observations[agent]['day'] = self.day
-                    if agent == target:
-                        rewards[agent] -= 10  # Penalty for being voted out
-    
-
-        # Reward agents for surviving another day
-        for agent in self.agents:
-            if self.state[agent]['life_status'][int(agent.split('_')[1])] == 1:
-                rewards[agent] += 2
-
-        # Check for end of game conditions (terminations)
-        if self.current_day >= self.max_days:
-            terminations = {agent: True for agent in self.agents}
-
-        # Check for end of game conditions (terminations)
-        if self.current_day >= self.max_days:
-            terminations = {agent: True for agent in self.agents}
-        
-        # check for terminations
-        num_werewolves = sum(self.state[agent]['role'][int(agent.split('_')[1])] for agent in self.agents)
-        num_villagers = sum(1 - self.state[agent]['role'][int(agent.split('_')[1])] for agent in self.agents)
-        
-        if num_werewolves >= num_villagers:
-            terminations = {agent: True for agent in self.agents}
-            # Assign rewards for winning or losing
-            for agent in self.agents:
-                agent_id = int(agent.split('_')[1])
-                if self.state[agent]['life_status'][agent_id] == 1:  # Check if the agent is alive
-                    if self.state[agent]['role'][agent_id] == 1:  # Werewolf role
-                        rewards[agent] = 100  # Werewolves win
-                    else:
-                        rewards[agent] = -100  # Villagers lose
-        elif num_werewolves == 0:
-            terminations = {agent: True for agent in self.agents}
-            # Assign rewards for winning or losing
-            for agent in self.agents:
-                agent_id = int(agent.split('_')[1])
-                if self.state[agent]['life_status'][agent_id] == 1:  # Check if the agent is alive
-                    if self.state[agent]['role'][agent_id] == 0:  # Villager role
-                        rewards[agent] = 100  # Villagers win
-                    else:
-                        rewards[agent] = -100  # Werewolves lose
-        
-        # check for truncations
-        if self.day >= self.max_days:
-            truncations = {agent: True for agent in self.agents}
-        
-        # update observations (???)
-        # Note that we should be updating observations after each phase
-        
-        return observations, rewards, terminations, truncations, {}
+        return self._dict_to_flat_obs(observations['player_0']), reward, terminated, truncated, {}
