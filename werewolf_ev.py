@@ -223,7 +223,16 @@ class werewolf(ParallelEnv):
                     votes[target] += 1
 
                 # eliminate agent that gets the most votes
+<<<<<<< Updated upstream
                 target = np.argmax(votes) #what if there is a split? Randomly choose 1?
+=======
+                max_votes = np.max(votes)
+                # indices of players with tied votes
+                tied_players = np.where(votes == max_votes)[0]
+                # randomly choose 1 of tied players to kill
+                target = np.random.choice(tied_players)
+                
+>>>>>>> Stashed changes
                 for agent in self.agents:
                     observations[agent]['life_status'][target] = 0
                     observations[agent]['comm_round'] = self.comm_round
