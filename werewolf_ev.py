@@ -158,12 +158,7 @@ class werewolf(ParallelEnv):
                 #should loop through and update life status for every agent
             self.phase = 1
             for agent in self.agents:
-                print()
-                print()
-                print('target:')
-                print(target)
-                print()
-                print()
+
                 observations[agent]['life_status'][target] = 0
                 observations[agent]['phase'] = self.phase
 
@@ -211,12 +206,6 @@ class werewolf(ParallelEnv):
             votes = np.zeros(self.num_players)
             for agent, action in action.items():
                 if self.state[agent]['life_status'][int(agent.split('_')[1])] == 1:
-                    print()
-                    print()
-                    print('target for votes:')
-                    print(target)
-                    print()
-                    print()
                     # only LIVING agents can vote
                     #punish for voting for a dead player/a dead player voting?
                     target = action[1]
