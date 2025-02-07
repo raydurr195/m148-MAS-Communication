@@ -49,7 +49,6 @@ class werewolf(ParallelEnv):
         self.agents = self.possible_agents[:] #selects agents from possible agents
         wolves = np.random.choice(len(self.agents), size = self.num_wolf, replace = False) #randomly choose num_wolf amount of wolves from the agents(these are index numbers)
         self.wolves = wolves #stores index number of wolves//should remember to delete the entry if wolf is eliminated
-
         self.phase = 0 #stage 0 is werewolf killing, 1 is communication, 2 is voting
         self.comm_round = 0 #start with a communication round of 0
         self.day = 0 #goes from 0 to self.max_days - 1
@@ -64,7 +63,7 @@ class werewolf(ParallelEnv):
         observations = {}
         for agent in self.agents:
             role = np.zeros((self.num_players,))
-            if agent in self.wolves:
+            if agent.split('_')[1] in self.wolves:
                 role[self.wolves] = 1
 
             obs_n = {
@@ -145,12 +144,13 @@ class werewolf(ParallelEnv):
                 agent_id = int(agent.split('_')[1])
                 if self.state[agent]['role'][agent_id] == 2:  # seer role
                     target = action[1]  # the agent the seer investigates
-                    observations[agent]['role'][target]= 1 if self.state[agent]['role'][target] == 1 else 0
+                    
+                    observations[agent]['role'][target]= 1 if self.state[self.agents[target]]['role'][target] == 1 else 0
 
             # werewolves choose a target to kill
-            werewolf_actions = [action[1] for agent, action in actions.items() if self.state[agent]['role'][agent] == 1]
-            if werewolf_actions:
-                target = np.random.choice(werewolf_actions) 
+            werewolf_actions = [action[1] for agent, action in actions.items() if int(agent.split('_')[1]) in self.wolves]
+        
+            target = np.random.choice(werewolf_actions) 
                 # ^^ TODO: change this to be a choice by the agent
                 # also add a voting thing if there are multiple werewolves
 
@@ -158,6 +158,12 @@ class werewolf(ParallelEnv):
                 #should loop through and update life status for every agent
             self.phase = 1
             for agent in self.agents:
+                print()
+                print()
+                print('target:')
+                print(target)
+                print()
+                print()
                 observations[agent]['life_status'][target] = 0
                 observations[agent]['phase'] = self.phase
 
@@ -205,6 +211,12 @@ class werewolf(ParallelEnv):
             votes = np.zeros(self.num_players)
             for agent, action in action.items():
                 if self.state[agent]['life_status'][int(agent.split('_')[1])] == 1:
+                    print()
+                    print()
+                    print('target for votes:')
+                    print(target)
+                    print()
+                    print()
                     # only LIVING agents can vote
                     #punish for voting for a dead player/a dead player voting?
                     target = action[1]
@@ -226,14 +238,6 @@ class werewolf(ParallelEnv):
             else:
                 rewards[agent] -= 2
 
-        # Check for end of game conditions (terminations)
-        if self.current_day >= self.max_days:
-            terminations = {agent: True for agent in self.agents}
-
-        # Check for end of game conditions (terminations)
-        if self.current_day >= self.max_days:
-            terminations = {agent: True for agent in self.agents}
-
         # check for terminations
         num_werewolves = sum(self.state[agent]['role'][int(agent.split('_')[1])] for agent in self.agents)
         num_villagers = sum(1 - self.state[agent]['role'][int(agent.split('_')[1])] for agent in self.agents)
@@ -243,7 +247,7 @@ class werewolf(ParallelEnv):
             # Assign rewards for winning or losing
             for agent in self.agents:
                 if self.state[agent]['life_status'][int(agent.split('_')[1])] == 1:  # Check if the agent is alive
-                    if self.state[agent]['role'] == 'werewolf':
+                    if self.state[agent]['role'][int(agent.split('_')[1])] == 1:
                         rewards[agent] = 100  # Werewolves win
                 else:
                     rewards[agent] = -100  # Villagers lose
@@ -253,7 +257,7 @@ class werewolf(ParallelEnv):
             # Assign rewards for winning or losing
             for agent in self.agents:
                 if self.state[agent]['life_status'][int(agent.split('_')[1])] == 1:  # Check if the agent is alive
-                    if self.state[agent]['role'] == 'villager':
+                    if self.state[agent]['role'][int(agent.split('_')[1])] == 0:
                         rewards[agent] = 100  # Villagers win
                 else:
                     rewards[agent] = -100  # Werewolves lose
