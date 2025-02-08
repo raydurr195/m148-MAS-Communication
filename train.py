@@ -81,6 +81,9 @@ def env_creator(config):
 
 register_env(env_name, lambda config: env_creator(config))
 
+def policy_mapping_fn(agent_id, episode, worker, **kwargs):
+    return "villager_policy" if "villager" in agent_id else "werewolf_policy"
+
 # Initialize environment
 env = werewolf(num_players=7, comm_rounds=4, num_wolf=1, max_days=15)
 obs_spaces = {agent: env.observation_space(agent) for agent in env.possible_agents}
@@ -112,7 +115,7 @@ config = (
             "villager_policy": (None, obs_spaces["player_0"], act_spaces["player_0"], {}),
             "werewolf_policy": (None, obs_spaces["player_0"], act_spaces["player_0"], {})
         },
-        policy_mapping_fn=lambda agent_id, **kwargs: "villager_policy" if "villager" in agent_id else "werewolf_policy"
+        policy_mapping_fn=policy_mapping_fn
     )
    # .rl_module(
     #    rl_module_spec=rl_module_spec
@@ -127,7 +130,7 @@ config = (
 tune.run(
     "PPO",
     name="werewolf_training",
-    stop={"training_iteration": 100},
+    stop={"training_iteration": 10},
     config=config.to_dict(),
     checkpoint_at_end=True,
 )

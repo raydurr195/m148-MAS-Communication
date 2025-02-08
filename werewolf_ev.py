@@ -17,20 +17,13 @@ class werewolf(ParallelEnv):
         self.max_days = max_days #maximum number of days
         self.comm_max = comm_rounds #there is a maximum number of communication rounds equal to comm_rounds for phase 0
         #we have multiple comm_rounds per day to simulate agents being able to reply to each other
-
-        self.possible_agents = [f'player_{i}' for i in range(self.num_players)]
-    
-    def action_space(self, agent):
-        return spaces.MultiDiscrete([#this action space is divided into two different discrete spaces 
+        self.act_space = spaces.MultiDiscrete([#this action space is divided into two different discrete spaces 
                 4, #this space goes from 0-3 and is used in all stages
                 #in the communication stage: 0 is lie, 1 is accuse, 2 is tell truth, 3 is defend//all other phases any entry will represent a vote action or for seer the watch option
                 self.num_players  #the second is the target and is used in all stages
-                ])
-                
-    
-    def observation_space(self, agent):
-        return spaces.Dict( {
-            'role': spaces.MultiDiscrete([2 for i in range(self.num_players)]), #0 is villager, 1 is werewolf
+        ])
+        self.obs_space = spaces.Dict({
+            'role': spaces.MultiDiscrete([3 for i in range(self.num_players)]), #0 is villager, 1 is werewolf
             'public_accusation': spaces.Box(low=0, high=np.inf, shape=(self.num_players, self.num_players), dtype=np.float64),
             'public_vote': spaces.Box(low=0, high=np.inf, shape=(self.num_players, self.num_players), dtype=np.float64),
             'public_defense': spaces.Box(low=0, high=np.inf, shape=(self.num_players, self.num_players), dtype=np.float64),
@@ -39,10 +32,21 @@ class werewolf(ParallelEnv):
             'trust': spaces.Box(low=0, high=1, shape=(self.num_players,), dtype=np.float64),
             'life_status': spaces.MultiBinary(self.num_players), #1 means alive, 0 is dead
 
-            'phase' : spaces.Discrete(3), #shows current phase
-            'comm_round' : spaces.Discrete(self.comm_max), #shows current comm round
-            'day' : spaces.Discrete(self.max_days)
+            'phase' : spaces.Box(low = 0, high = 2, shape=(1,1)), #shows current phase
+            'comm_round' : spaces.Box(low = 0, high = self.comm_max-1, shape=(1,1)), #shows current comm round
+            'day' : spaces.Box(low = 0, high = self.max_days-1, shape=(1,1))
         })
+
+        self.observation_spaces = self.obs_space
+        self.action_spaces = self.act_space
+        self.possible_agents = [f'player_{i}' for i in range(self.num_players)]
+    
+    def action_space(self, agent):
+        return spaces.flatten_space(self.act_space)
+                
+    
+    def observation_space(self, agent):
+        return spaces.flatten_space(self.obs_space)
     
     def reset(self, *, seed = None, options = None):
         #initializes a new enviornment
@@ -62,8 +66,8 @@ class werewolf(ParallelEnv):
     def get_obs_res(self):
         observations = {}
         for agent in self.agents:
-            role = np.zeros((self.num_players,))
-            if agent.split('_')[1] in self.wolves:
+            role = np.zeros((self.num_players,), dtype = np.int32)
+            if int(agent.split('_')[1]) in self.wolves:
                 role[self.wolves] = 1
 
             obs_n = {
@@ -78,12 +82,15 @@ class werewolf(ParallelEnv):
             'comm_round' : np.array(0),
             'day' : np.array(0)
         }
-            observations.update({agent : obs_n})
+            observations.update({agent : spaces.flatten(self.obs_space, obs_n)})
         return observations
     
     # helper function to kill agents
-    def update_life_status(self, target, status):
-        self.state[self.agents[0]]['life_status'][target] = status
+    def update_life_status(self, agent, target, status):
+        obs = self.state[agent]
+        obs_unflat = spaces.unflatten(self.obs_space, obs)
+        new_unflat = obs_unflat['life_status'][target] = status
+        self.state[agent][spaces.flatten(self.obs_space, new_unflat)]
 
 
     """
@@ -129,6 +136,9 @@ class werewolf(ParallelEnv):
         # initialize rewards and termination/truncation flags
         # move the below to reset function
         observations = self.state
+        observations = {agent : spaces.unflatten(self.obs_space, obs) for agent, obs in observations.items()}
+        print(actions)
+        actions = {agent : spaces.unflatten(self.act_space, action) for agent,action in actions.items()}
         rewards = {agent: 0 for agent in self.agents}
         terminations = {agent: False for agent in self.agents} 
         truncations = {agent: False for agent in self.agents}
@@ -142,10 +152,10 @@ class werewolf(ParallelEnv):
             # TODO: are we allowing multiple seers???
             for agent,action in actions.items():
                 agent_id = int(agent.split('_')[1])
-                if self.state[agent]['role'][agent_id] == 2:  # seer role
+                if observations[agent]['role'][agent_id] == 2:  # seer role
                     target = action[1]  # the agent the seer investigates
                     
-                    observations[agent]['role'][target]= 1 if self.state[self.agents[target]]['role'][target] == 1 else 0
+                    observations[agent]['role'][target]= 1 if observations[self.agents[target]]['role'][target] == 1 else 0
 
             # werewolves choose a target to kill
             werewolf_actions = [action[1] for agent, action in actions.items() if int(agent.split('_')[1]) in self.wolves]
@@ -160,7 +170,7 @@ class werewolf(ParallelEnv):
             for agent in self.agents:
 
                 observations[agent]['life_status'][target] = 0
-                observations[agent]['phase'] = self.phase
+                observations[agent]['phase'] = np.array(self.phase, dtype = np.int32)
 
             #return observations, rewards, terminations, truncations, {}
             # move to day//I think we should return here, update each agents observations to have a phase equal to 1 and allow them to take more actions
@@ -174,7 +184,7 @@ class werewolf(ParallelEnv):
             for agent,action in actions.items():
                 agent_id = int(agent.split('_')[1])
                 # only alive agents communicate
-                if self.state[agent]['life_status'][agent_id] == 1:  
+                if observations[agent]['life_status'][agent_id] == 1:  
                     #maybe punish for voting for a dead person/voting when you are dead?
                     if action[0] == 1:#if the agent decides to accuse another agent
                         target = action[1]  # agent they accuse
@@ -189,8 +199,8 @@ class werewolf(ParallelEnv):
                 #update all agents accusations and defenses matrix
                 observations[agent]['public_accusation'] += accusations
                 observations[agent]['public_defense'] += defenses
-                observations[agent]['comm_round'] = self.comm_round
-                observations[agent]['phase'] = self.phase
+                observations[agent]['comm_round'] = np.array(self.comm_round,dtype = np.int32)
+                observations[agent]['phase'] = np.array(self.phase,dtype = np.int32)
             
            # return observations, rewards, terminations, truncations, {}
 
@@ -203,49 +213,48 @@ class werewolf(ParallelEnv):
             self.comm_round = 0
             self.day += 1
             # Voting phase
-            votes = np.zeros(self.num_players)
-            for agent, action in action.items():
-                if self.state[agent]['life_status'][int(agent.split('_')[1])] == 1:
+            votes = np.zeros((1,self.num_players))
+            print()
+            print()
+            print(actions)
+            print()
+            print()
+            for agent, action in actions.items():
+                if observations[agent]['life_status'][int(agent.split('_')[1])] == 1:
                     # only LIVING agents can vote
                     #punish for voting for a dead player/a dead player voting?
                     target = action[1]
                     votes[target] += 1
 
                 # eliminate agent that gets the most votes
-<<<<<<< Updated upstream
                 target = np.argmax(votes) #what if there is a split? Randomly choose 1?
-=======
-                max_votes = np.max(votes)
-                # indices of players with tied votes
-                tied_players = np.where(votes == max_votes)[0]
                 # randomly choose 1 of tied players to kill
-                target = np.random.choice(tied_players)
+                target = np.random.choice(target)
                 
->>>>>>> Stashed changes
                 for agent in self.agents:
                     observations[agent]['life_status'][target] = 0
-                    observations[agent]['comm_round'] = self.comm_round
-                    observations[agent]['phase'] = self.phase
-                    observations[agent]['day'] = self.day
+                    observations[agent]['comm_round'][0] = np.array(self.comm_round,dtype=np.int32)
+                    observations[agent]['phase'][0] = np.array(self.phase,dtype=np.int32)
+                    observations[agent]['day'][0] = np.array(self.day,dtype=np.int32)
     
 
         # Reward agents for surviving another day
         for agent in self.agents:
-            if self.state[agent]['life_status'][int(agent.split('_')[1])] == 1:
+            if observations[agent]['life_status'][int(agent.split('_')[1])] == 1:
                 rewards[agent] += 2
             else:
                 rewards[agent] -= 2
 
         # check for terminations
-        num_werewolves = sum(self.state[agent]['role'][int(agent.split('_')[1])] for agent in self.agents)
-        num_villagers = sum(1 - self.state[agent]['role'][int(agent.split('_')[1])] for agent in self.agents)
+        num_werewolves = sum(observations[agent]['role'][int(agent.split('_')[1])] for agent in self.agents)
+        num_villagers = sum(1 - observations[agent]['role'][int(agent.split('_')[1])] for agent in self.agents)
 
         if num_werewolves >= num_villagers:
             terminations = {agent: True for agent in self.agents}
             # Assign rewards for winning or losing
             for agent in self.agents:
-                if self.state[agent]['life_status'][int(agent.split('_')[1])] == 1:  # Check if the agent is alive
-                    if self.state[agent]['role'][int(agent.split('_')[1])] == 1:
+                if observations[agent]['life_status'][int(agent.split('_')[1])] == 1:  # Check if the agent is alive
+                    if observations[agent]['role'][int(agent.split('_')[1])] == 1:
                         rewards[agent] = 100  # Werewolves win
                 else:
                     rewards[agent] = -100  # Villagers lose
@@ -254,8 +263,8 @@ class werewolf(ParallelEnv):
 
             # Assign rewards for winning or losing
             for agent in self.agents:
-                if self.state[agent]['life_status'][int(agent.split('_')[1])] == 1:  # Check if the agent is alive
-                    if self.state[agent]['role'][int(agent.split('_')[1])] == 0:
+                if observations[agent]['life_status'][int(agent.split('_')[1])] == 1:  # Check if the agent is alive
+                    if observations[agent]['role'][int(agent.split('_')[1])] == 0:
                         rewards[agent] = 100  # Villagers win
                 else:
                     rewards[agent] = -100  # Werewolves lose
@@ -268,5 +277,5 @@ class werewolf(ParallelEnv):
         
         # update observations (???)
         #note that we should be updating observations after each phase
-
+        observations = {agent : spaces.flatten(self.obs_space, obs) for agent, obs in observations.items()}
         return observations, rewards, terminations, truncations, infos
