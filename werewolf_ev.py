@@ -143,12 +143,12 @@ class werewolf(ParallelEnv):
         if phase == 0:
             # Night phase
             # seer sees 
-            if agent_id == self.seer and action[1] != self.seer:  # seer cant check themself
-                target = action[1]  #player being investigated
-                if observations[self.agents[target]]['role'][target] == 1:  # ff target is a werewolf
-                    observations[agent]['role'][target] = 1
-                else:
-                    observations[agent]['role'][target] = 0
+            # if agent_id == self.seer and action[1] != self.seer:  # seer cant check themself
+            #     target = action[1]  #player being investigated
+            #     if observations[self.agents[target]]['role'][target] == 1:  # ff target is a werewolf
+            #         observations[agent]['role'][target] = 1
+            #     else:
+            #         observations[agent]['role'][target] = 0
             # TODO: are we allowing multiple seers???
             for agent,action in actions.items():
                 agent_id = int(agent.split('_')[1])
@@ -170,7 +170,7 @@ class werewolf(ParallelEnv):
             for agent in self.agents:
 
                 observations[agent]['life_status'][target] = 0
-                observations[agent]['phase'] = np.array(self.phase, dtype = np.int32)
+                observations[agent]['phase'] = np.array(self.phase, dtype = np.int32).reshape((1,1))
 
             #return observations, rewards, terminations, truncations, {}
             # move to day//I think we should return here, update each agents observations to have a phase equal to 1 and allow them to take more actions
@@ -193,21 +193,21 @@ class werewolf(ParallelEnv):
                         target = action[1]
                         defenses[agent_id,target] += 1
             self.comm_round += 1
-            if self.comm_round >= self.comm_max: # move onto voting phase
+            if self.comm_round >= (self.comm_max-1): # move onto voting phase
+                #self.comm_round = 0
                 self.phase = 2
             for agent in self.agents:
                 #update all agents accusations and defenses matrix
                 observations[agent]['public_accusation'] += accusations
                 observations[agent]['public_defense'] += defenses
-                observations[agent]['comm_round'] = np.array(self.comm_round,dtype = np.int32)
-                observations[agent]['phase'] = np.array(self.phase,dtype = np.int32)
+                observations[agent]['comm_round'] = np.array(self.comm_round,dtype = np.int32).reshape((1,1))
+                observations[agent]['phase'] = np.array(self.phase,dtype = np.int32).reshape((1,1))
             
            # return observations, rewards, terminations, truncations, {}
 
 
 
         elif phase == 2 :
-
             # first, reset phase and move to next day
             self.phase = 0
             self.comm_round = 0
@@ -228,9 +228,9 @@ class werewolf(ParallelEnv):
                 
                 for agent in self.agents:
                     observations[agent]['life_status'][target] = 0
-                    observations[agent]['comm_round'][0] = np.array(self.comm_round,dtype=np.int32)
-                    observations[agent]['phase'][0] = np.array(self.phase,dtype=np.int32)
-                    observations[agent]['day'][0] = np.array(self.day,dtype=np.int32)
+                    observations[agent]['comm_round'][0] = np.array(self.comm_round,dtype=np.int32).reshape((1,1))
+                    observations[agent]['phase'][0] = np.array(self.phase,dtype=np.int32).reshape((1,1))
+                    observations[agent]['day'][0] = np.array(self.day,dtype=np.int32).reshape((1,1))
     
 
         # Reward agents for surviving another day
@@ -267,7 +267,7 @@ class werewolf(ParallelEnv):
             # rewards = {agent: 1 if self.state[agent]['role'][int(agent.split('_')[1])] == 1 else -1 for agent in self.agents}
 
         # check for truncations
-        if self.day >= self.max_days:
+        if self.day >= (self.max_days-1):
             truncations = {agent: True for agent in self.agents}
         
         # update observations (???)
