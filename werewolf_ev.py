@@ -42,7 +42,7 @@ class werewolf(ParallelEnv):
         self.possible_agents = [f'player_{i}' for i in range(self.num_players)]
     
     def action_space(self, agent):
-        return spaces.flatten_space(self.act_space)
+        return self.act_space
                 
     
     def observation_space(self, agent):
@@ -78,9 +78,9 @@ class werewolf(ParallelEnv):
             'trust': np.full((self.num_players,), 0.5, dtype=np.float64),
             'life_status': np.ones((self.num_players,)),
 
-            'phase' : np.array(0),
-            'comm_round' : np.array(0),
-            'day' : np.array(0)
+            'phase' : np.array(0).reshape((1,1)),
+            'comm_round' : np.array(0).reshape((1,1)),
+            'day' : np.array(0).reshape((1,1))
         }
             observations.update({agent : spaces.flatten(self.obs_space, obs_n)})
         return observations
@@ -137,8 +137,7 @@ class werewolf(ParallelEnv):
         # move the below to reset function
         observations = self.state
         observations = {agent : spaces.unflatten(self.obs_space, obs) for agent, obs in observations.items()}
-        print(actions)
-        actions = {agent : spaces.unflatten(self.act_space, action) for agent,action in actions.items()}
+        #actions = {agent : spaces.unflatten(self.act_space, action) for agent,action in actions.items()}
         rewards = {agent: 0 for agent in self.agents}
         terminations = {agent: False for agent in self.agents} 
         truncations = {agent: False for agent in self.agents}
@@ -159,7 +158,7 @@ class werewolf(ParallelEnv):
 
             # werewolves choose a target to kill
             werewolf_actions = [action[1] for agent, action in actions.items() if int(agent.split('_')[1]) in self.wolves]
-        
+
             target = np.random.choice(werewolf_actions) 
                 # ^^ TODO: change this to be a choice by the agent
                 # also add a voting thing if there are multiple werewolves
@@ -214,22 +213,17 @@ class werewolf(ParallelEnv):
             self.day += 1
             # Voting phase
             votes = np.zeros((1,self.num_players))
-            print()
-            print()
-            print(actions)
-            print()
-            print()
             for agent, action in actions.items():
                 if observations[agent]['life_status'][int(agent.split('_')[1])] == 1:
                     # only LIVING agents can vote
                     #punish for voting for a dead player/a dead player voting?
                     target = action[1]
-                    votes[target] += 1
+                    votes[0,target] += 1
 
                 # eliminate agent that gets the most votes
-                target = np.argmax(votes) #what if there is a split? Randomly choose 1?
-                # randomly choose 1 of tied players to kill
-                target = np.random.choice(target)
+                max_votes = np.max(votes)
+                targets = np.where(votes== max_votes)[1]
+                target = np.random.choice(targets)
                 
                 for agent in self.agents:
                     observations[agent]['life_status'][target] = 0
