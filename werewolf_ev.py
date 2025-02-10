@@ -19,7 +19,8 @@ class werewolf(ParallelEnv):
         #we have multiple comm_rounds per day to simulate agents being able to reply to each other
         self.act_space = spaces.MultiDiscrete([#this action space is divided into two different discrete spaces 
                 4, #this space goes from 0-3 and is used in all stages
-                #in the communication stage: 0 is lie, 1 is accuse, 2 is tell truth, 3 is defend//all other phases any entry will represent a vote action or for seer the watch option
+                #in the communication stage: 0 is lie, 1 is accuse, 2 is tell truth, 3 is defend
+                # //all other phases any entry will represent a vote action or for seer the watch option
                 self.num_players  #the second is the target and is used in all stages
         ])
         self.obs_space = spaces.Dict({
@@ -51,8 +52,16 @@ class werewolf(ParallelEnv):
     def reset(self, *, seed = None, options = None):
         #initializes a new enviornment
         self.agents = self.possible_agents[:] #selects agents from possible agents
+
+        # assign wolves
         wolves = np.random.choice(len(self.agents), size = self.num_wolf, replace = False) #randomly choose num_wolf amount of wolves from the agents(these are index numbers)
-        self.wolves = wolves #stores index number of wolves//should remember to delete the entry if wolf is eliminated
+        self.wolves = wolves #stores index number of wolves
+        #//should remember to delete the entry if wolf is eliminated
+
+        # assign villagers and seer
+        villager_indices = [i for i in range(self.num_players) if i not in self.wolves]
+        self.seer = np.random.choice(villager_indices)
+        
         self.phase = 0 #stage 0 is werewolf killing, 1 is communication, 2 is voting
         self.comm_round = 0 #start with a communication round of 0
         self.day = 0 #goes from 0 to self.max_days - 1
@@ -67,8 +76,11 @@ class werewolf(ParallelEnv):
         observations = {}
         for agent in self.agents:
             role = np.zeros((self.num_players,), dtype = np.int32)
-            if int(agent.split('_')[1]) in self.wolves:
-                role[self.wolves] = 1
+            if agent_id in self.wolves:
+                role[self.wolves] = 1  # werewolves
+            elif agent_id == self.seer:
+                role[self.seer] = 2  # seer
+    
 
             obs_n = {
             'role': role,
@@ -149,7 +161,14 @@ class werewolf(ParallelEnv):
         if phase == 0:
             # Night phase
             # seer sees 
+            if agent_id == self.seer and action[1] != self.seer:  # seer cant check themself
+                target = action[1]  #player being investigated
+                if observations[self.agents[target]]['role'][target] == 1:  # ff target is a werewolf
+                    observations[agent]['role'][target] = 1
+                else:
+                    observations[agent]['role'][target] = 0
             # TODO: are we allowing multiple seers???
+            
             for agent,action in actions.items():
                 agent_id = int(agent.split('_')[1])
                 if observations[agent]['role'][agent_id] == 2:  # seer role
