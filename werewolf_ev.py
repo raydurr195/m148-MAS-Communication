@@ -17,11 +17,15 @@ class werewolf(ParallelEnv):
         self.max_days = max_days #maximum number of days
         self.comm_max = comm_rounds #there is a maximum number of communication rounds equal to comm_rounds for phase 0
         #we have multiple comm_rounds per day to simulate agents being able to reply to each other
-        self.act_space = spaces.MultiDiscrete([#this action space is divided into two different discrete spaces 
-                4, #this space goes from 0-3 and is used in all stages
-                #in the communication stage: 0 is lie, 1 is accuse, 2 is tell truth, 3 is defend//all other phases any entry will represent a vote action or for seer the watch option
-                self.num_players  #the second is the target and is used in all stages
+        self.act_space = spaces.MultiDiscrete([
+                4, 
+                self.num_players  
         ])
+        #this action space is divided into two different discrete spaces 
+        #this space goes from 0-3 and is used in all stages
+        #in the communication stage: 0 is lie, 1 is accuse, 2 is tell truth, 3 is defend
+        # all other phases any entry will represent a vote action or for seer the watch option
+        #the second is the target and is used in all stages
         self.obs_space = spaces.Dict({
             'role': spaces.MultiDiscrete([3 for i in range(self.num_players)]), #0 is villager, 1 is werewolf
             'public_accusation': spaces.Box(low=0, high=np.inf, shape=(self.num_players, self.num_players), dtype=np.float64),
@@ -45,20 +49,29 @@ class werewolf(ParallelEnv):
         return self.act_space
                 
     
+                
     def observation_space(self, agent):
         return spaces.flatten_space(self.obs_space)
     
     def reset(self, *, seed = None, options = None):
         #initializes a new enviornment
         self.agents = self.possible_agents[:] #selects agents from possible agents
+
+        # assign wolves
         wolves = np.random.choice(len(self.agents), size = self.num_wolf, replace = False) #randomly choose num_wolf amount of wolves from the agents(these are index numbers)
-        self.wolves = wolves #stores index number of wolves//should remember to delete the entry if wolf is eliminated
+        self.wolves = wolves #stores index number of wolves
+        #//should remember to delete the entry if wolf is eliminated
+
+        # assign villagers and seer
+        villager_indices = [i for i in range(self.num_players) if i not in self.wolves]
+        self.seer = np.random.choice(villager_indices)
+        
         self.phase = 0 #stage 0 is werewolf killing, 1 is communication, 2 is voting
         self.comm_round = 0 #start with a communication round of 0
         self.day = 0 #goes from 0 to self.max_days - 1
-        
-        infos = {agent: {} for agent in self.agents} #weird thing from petting zoo//not sure why its needed or what it does but documentation shows an empty dict works
+        self.infos = {agent: {} for agent in self.agents} #weird thing from petting zoo//not sure why its needed or what it does but documentation shows an empty dict works
         self.state = self.get_obs_res() #self.state should be a dictionary where each key is the name of the agent(from self.agents) and the value is the observation
+        
         obs = self.state
         info = {agent: {} for agent in self.agents}
         return obs, info
@@ -66,9 +79,13 @@ class werewolf(ParallelEnv):
     def get_obs_res(self):
         observations = {}
         for agent in self.agents:
+            agent_id = int(agent.split('_')[1])
             role = np.zeros((self.num_players,), dtype = np.int32)
-            if int(agent.split('_')[1]) in self.wolves:
-                role[self.wolves] = 1
+            if agent_id in self.wolves:
+                role[agent_id] = 1  # werewolves
+            elif agent_id == self.seer:
+                role[agent_id] = 2  # seer
+    
 
             obs_n = {
             'role': role,
@@ -89,31 +106,9 @@ class werewolf(ParallelEnv):
     def update_life_status(self, agent, target, status):
         obs = self.state[agent]
         obs_unflat = spaces.unflatten(self.obs_space, obs)
-        new_unflat = obs_unflat['life_status'][target] = status
-        self.state[agent][spaces.flatten(self.obs_space, new_unflat)]
+        obs_unflat['life_status'][target] = status
+        self.state[agent][spaces.flatten(self.obs_space, obs_unflat)]
 
-
-    """
-    def update_matrices(self, actions):
-        if self.phase == 1: #if communication phase then only update public accusations and defense
-            #get old accusation and defense matrices for efficient modifications
-            new_acc = self.state[self.agents[0]]['public_accusation']
-            new_defense = self.state[self.agents[0]]['public_defense']
-            #loop through each agent and action
-            for agent, action in actions.items():
-                comm_type = action[0] #recall 0 is lie, 1 is accuse, 2 is tell truth, and 3 is defend
-                target = action[1] #this should be who an action targets
-
-                agent_id = agent.split('_')[1] #doing this so as agents are terminated and removed from self.agents we keep a good track of agent_ids
-                self.agents.index(agent)
-                if comm_type == 1: #update accusation matrix 
-                    new_acc[agent_id, target] = new_acc[agent_id, target] + 1
-                elif comm_type == 3:
-                    new_defense[agent_id, target] = new_acc[agent_id, target] + 1
-            for agent in self.agents:
-                self.state[agent]['public_accusation'] = new_acc
-                self.state[agent]['public_defense'] = new_defense
-    """
     
     def step(self, actions):
         """
@@ -148,6 +143,12 @@ class werewolf(ParallelEnv):
         if phase == 0:
             # Night phase
             # seer sees 
+            if agent_id == self.seer and action[1] != self.seer:  # seer cant check themself
+                target = action[1]  #player being investigated
+                if observations[self.agents[target]]['role'][target] == 1:  # ff target is a werewolf
+                    observations[agent]['role'][target] = 1
+                else:
+                    observations[agent]['role'][target] = 0
             # TODO: are we allowing multiple seers???
             for agent,action in actions.items():
                 agent_id = int(agent.split('_')[1])
