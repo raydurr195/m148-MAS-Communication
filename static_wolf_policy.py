@@ -1,5 +1,6 @@
 from ray.rllib.policy.policy import Policy
 import numpy as np
+from gymnasium import spaces
 
 class StaticWerewolfPolicy(Policy):
     def __init__(self, observation_space, action_space, config):
@@ -13,72 +14,63 @@ class StaticWerewolfPolicy(Policy):
                        info_batch=None,
                        episodes=None,
                        **kwargs):
-        num_obs = len(obs_batch)
+        num_players = 7
+        # Define observation space structure
+        obs_space = spaces.Dict({
+            'role': spaces.MultiDiscrete([3 for i in range(num_players)]),
+            'public_accusation': spaces.Box(low=0, high=np.inf, shape=(num_players, num_players), dtype=np.float64),
+            'public_vote': spaces.Box(low=0, high=np.inf, shape=(num_players, num_players), dtype=np.float64),
+            'public_defense': spaces.Box(low=0, high=np.inf, shape=(num_players, num_players), dtype=np.float64),
+            'trust': spaces.Box(low=0, high=1, shape=(num_players,), dtype=np.float64),
+            'life_status': spaces.MultiBinary(num_players),
+            'phase': spaces.Box(low=0, high=2, shape=(1,1)),
+            'comm_round': spaces.Box(low=0, high=3, shape=(1,1)),
+            'day': spaces.Box(low=0, high=14, shape=(1,1))
+        })
+
         actions = []
-        
-        for obs in obs_batch:
-            # Extract relevant information from flattened observation
-            num_players = 7
-            role_start = 0
-            accusation_start = 7
-            defense_start = 56
-            trust_start = 105
-            life_status_start = 167
-            phase_index = 187
-            
-            # Reshape matrices from flattened form
-            roles = obs[role_start:accusation_start]
-            accusations = obs[accusation_start:defense_start].reshape(num_players, num_players)
-            defenses = obs[defense_start:trust_start].reshape(num_players, num_players)
-            trust = obs[trust_start:trust_start + num_players]
-            life_status = obs[life_status_start:life_status_start + num_players]
-            phase = int(obs[phase_index])
+        for flat_obs in obs_batch:
+            # Unflatten observation
+            obs = spaces.unflatten(obs_space, flat_obs)
             
             # Find wolf index (self)
-            wolf_idx = np.where(roles == 1)[0][0]
+            wolf_idx = np.where(obs['role'] == 1)[0][0]
             
             # Get living players excluding self
-            living_players = [i for i in range(num_players) if life_status[i] == 1 and i != wolf_idx]
+            living_players = [i for i in range(num_players) if obs['life_status'][i] == 1 and i != wolf_idx]
             
             if not living_players:
-                action = [0, 0]  # Fallback if no valid targets
-                actions.append(action)
+                actions.append([0, 0])  # Fallback if no valid targets
                 continue
                 
+            phase = int(obs['phase'])
             if phase == 0:  # Night phase
                 # Target players with high trust or those who defended others
-                defense_scores = np.sum(defenses, axis=1)  # How much each player defends others
-                target_scores = trust + defense_scores * 0.5
-                target_scores[wolf_idx] = -np.inf  # Cannot target self
-                target_scores[life_status == 0] = -np.inf  # Cannot target dead players
+                defense_scores = np.sum(obs['public_defense'], axis=1)
+                target_scores = obs['trust'] + defense_scores * 0.5
+                target_scores[wolf_idx] = -np.inf
+                target_scores[obs['life_status'] == 0] = -np.inf
                 target = np.argmax(target_scores)
-                action = [0, target]
+                actions.append([0, target])
                 
             elif phase == 1:  # Communication phase
                 # Calculate how much each player accused wolves
-                wolf_accusations = accusations[:, wolf_idx]
+                wolf_accusations = obs['public_accusation'][:, wolf_idx]
                 
-                # Prioritize accusing players who:
-                # 1. Have accused the wolf
-                # 2. Have high trust
-                target_scores = wolf_accusations + trust * 0.5
-                target_scores[wolf_idx] = -np.inf  # Cannot target self
-                target_scores[life_status == 0] = -np.inf  # Cannot target dead players
+                target_scores = wolf_accusations + obs['trust'] * 0.5
+                target_scores[wolf_idx] = -np.inf
+                target_scores[obs['life_status'] == 0] = -np.inf
                 
-                # Randomly choose between accusing (1) and defending (3)
-                action_type = np.random.choice([1, 3], p=[0.7, 0.3])  # 70% chance to accuse
+                action_type = np.random.choice([1, 3], p=[0.7, 0.3])
                 target = np.argmax(target_scores)
-                action = [action_type, target]
+                actions.append([action_type, target])
                 
             else:  # Voting phase
-                # Vote for player with most accusations, excluding self
-                accusation_counts = np.sum(accusations, axis=0)
-                accusation_counts[wolf_idx] = -np.inf  # Cannot vote for self
-                accusation_counts[life_status == 0] = -np.inf  # Cannot vote for dead players
+                accusation_counts = np.sum(obs['public_accusation'], axis=0)
+                accusation_counts[wolf_idx] = -np.inf
+                accusation_counts[obs['life_status'] == 0] = -np.inf
                 target = np.argmax(accusation_counts)
-                action = [0, target]
-                
-            actions.append(action)
+                actions.append([0, target])
 
         return np.array(actions), [], {}
 
