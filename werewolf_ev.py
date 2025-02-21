@@ -65,15 +65,25 @@ class werewolf(ParallelEnv):
         # assign villagers and seer
         villager_indices = [i for i in range(self.num_players) if i not in self.wolves]
         self.seer = np.random.choice(villager_indices)
-        
+        self.villagers = villager_indices
         self.phase = 0 #stage 0 is werewolf killing, 1 is communication, 2 is voting
         self.comm_round = 0 #start with a communication round of 0
         self.day = 0 #goes from 0 to self.max_days - 1
-        self.infos = {agent: {} for agent in self.agents} #weird thing from petting zoo//not sure why its needed or what it does but documentation shows an empty dict works
         self.state = self.get_obs_res() #self.state should be a dictionary where each key is the name of the agent(from self.agents) and the value is the observation
         
         obs = self.state
-        info = {agent: {} for agent in self.agents}
+        info = {agent: {'role' : spaces.unflatten(self.obs_space,self.state[agent])} for agent in self.agents} #log the role of each agent within their infos
+        self.infos = info
+
+        #custom metrics to be used within callback feature on episode end
+        self.v_acc_v = 0 #frequency that villagers accuse other villagers
+        self.v_acc_w = 0 #frequency that villagers accuse wolves
+        self.v_def_v = 0 #frequency that villagers defend other villagers
+        self.v_def_w = 0 #frequency that villagers defend wolves
+        self.suicide = 0 #number of times that agents vote to kill themselves
+        self.win = 2 #who wins: 0 represents villagers, 1 represents wolves, and 2 represents a draw
+        self.vill_reward = 0 #the total rewards for the villager team
+        self.wolf_reward = 0 #the total rewards for the wolf team
         return obs, info
 
     def get_obs_res(self):
@@ -143,23 +153,17 @@ class werewolf(ParallelEnv):
         if phase == 0:
             # Night phase
             # seer sees 
-            # if agent_id == self.seer and action[1] != self.seer:  # seer cant check themself
-            #     target = action[1]  #player being investigated
-            #     if observations[self.agents[target]]['role'][target] == 1:  # ff target is a werewolf
-            #         observations[agent]['role'][target] = 1
-            #     else:
-            #         observations[agent]['role'][target] = 0
-            # TODO: are we allowing multiple seers???
             for agent,action in actions.items():
                 agent_id = int(agent.split('_')[1])
                 if observations[agent]['role'][agent_id] == 2:  # seer role
                     target = action[1]  # the agent the seer investigates
-                    
-                    observations[agent]['role'][target]= 1 if observations[self.agents[target]]['role'][target] == 1 else 0
+                    observations[agent]['role'][target]= 1 if observations[self.agents[target]]['role'][target] == 1 else 0 
 
             # werewolves choose a target to kill
-            werewolf_actions = [action[1] for agent, action in actions.items() if int(agent.split('_')[1]) in self.wolves]
-
+            werewolf_actions = np.array([action[1] for agent, action in actions.items() if int(agent.split('_')[1]) in self.wolves])
+            wolf_vote_wolf = np.bincount(werewolf_actions, minlength = self.num_players)[self.wolves] #displays
+            self.suicide += np.sum(wolf_vote_wolf)
+            #TODO: add suicide tracker for wolves voting for themselves
             target = np.random.choice(werewolf_actions) 
                 # ^^ TODO: change this to be a choice by the agent
                 # also add a voting thing if there are multiple werewolves
@@ -172,15 +176,11 @@ class werewolf(ParallelEnv):
                 observations[agent]['life_status'][target] = 0
                 observations[agent]['phase'] = np.array(self.phase, dtype = np.int32).reshape((1,1))
 
-            #return observations, rewards, terminations, truncations, {}
-            # move to day//I think we should return here, update each agents observations to have a phase equal to 1 and allow them to take more actions
-
-
         # DAY: communication phase
         # TODO: what else......
         elif phase == 1 : 
-            accusations = np.zeros((self.num_players,self.num_players), dtype=np.float64) #store accusations
-            defenses = np.zeros((self.num_players,self.num_players), dtype=np.float64)
+            accusations = np.zeros((self.num_players,self.num_players), dtype=np.float64) #store new accusations
+            defenses = np.zeros((self.num_players,self.num_players), dtype=np.float64) #stores new defenses
             for agent,action in actions.items():
                 agent_id = int(agent.split('_')[1])
                 # only alive agents communicate
@@ -189,6 +189,7 @@ class werewolf(ParallelEnv):
                     if action[0] == 1:#if the agent decides to accuse another agent
                         target = action[1]  # agent they accuse
                         accusations[agent_id,target] +=1
+                        
                     elif action[0] == 3: #if the agent decides to defend another agent
                         target = action[1]
                         defenses[agent_id,target] += 1
@@ -203,7 +204,6 @@ class werewolf(ParallelEnv):
                 observations[agent]['comm_round'] = np.array(self.comm_round,dtype = np.int32).reshape((1,1))
                 observations[agent]['phase'] = np.array(self.phase,dtype = np.int32).reshape((1,1))
             
-           # return observations, rewards, terminations, truncations, {}
 
 
 
@@ -220,6 +220,8 @@ class werewolf(ParallelEnv):
                     #punish for voting for a dead player/a dead player voting?
                     target = action[1]
                     votes[0,target] += 1
+                    if int(agent.split('_')[1]) == target: #if an agent votes for themselves update the suicide attribute
+                        self.suicide += 1
 
                 # eliminate agent that gets the most votes
                 max_votes = np.max(votes)
@@ -239,38 +241,76 @@ class werewolf(ParallelEnv):
                 rewards[agent] += 2
             else:
                 rewards[agent] -= 2
+            if observations[agent]['role'][int(agent.split('_')[1])] == 1: #if agent wolf
+                self.wolf_reward += rewards[agent]
+            else:
+                self.vill_reward += rewards[agent]
 
         # check for terminations
         num_werewolves = sum(observations[agent]['role'][int(agent.split('_')[1])] for agent in self.agents)
         num_villagers = sum(1 - observations[agent]['role'][int(agent.split('_')[1])] for agent in self.agents)
 
-        if num_werewolves >= num_villagers:
+        if num_werewolves >= num_villagers: #werewolves win condition
+            self.win = 1 #werewolves win
             terminations = {agent: True for agent in self.agents}
             # Assign rewards for winning or losing
             for agent in self.agents:
                 if observations[agent]['life_status'][int(agent.split('_')[1])] == 1:  # Check if the agent is alive
                     if observations[agent]['role'][int(agent.split('_')[1])] == 1:
                         rewards[agent] = 100  # Werewolves win
+                        self.wolf_reward += rewards[agent]
                 else:
                     rewards[agent] = -100  # Villagers lose
-        elif num_werewolves == 0:
-            terminations = {agent: True for agent in self.agents}
+                    self.vill_reward += rewards[agent]
+            self.get_final_metric(observations)
 
+
+        elif num_werewolves == 0: #villager win conditions
+            terminations = {agent: True for agent in self.agents}
+            self.win = 0
             # Assign rewards for winning or losing
             for agent in self.agents:
                 if observations[agent]['life_status'][int(agent.split('_')[1])] == 1:  # Check if the agent is alive
                     if observations[agent]['role'][int(agent.split('_')[1])] == 0:
                         rewards[agent] = 100  # Villagers win
+                        self.vill_reward += rewards[agent]
                 else:
                     rewards[agent] = -100  # Werewolves lose
-                    
-            # rewards = {agent: 1 if self.state[agent]['role'][int(agent.split('_')[1])] == 1 else -1 for agent in self.agents}
+                    self.wolf_reward += rewards[agent]
+            self.get_final_metric(observations)
+
 
         # check for truncations
         if self.day >= (self.max_days-1):
             truncations = {agent: True for agent in self.agents}
+
         
         # update observations (???)
         #note that we should be updating observations after each phase
         observations = {agent : spaces.flatten(self.obs_space, obs) for agent, obs in observations.items()}
+
+        infos = {
+            agent : {
+                'role' : self.state
+            }
+        }
         return observations, rewards, terminations, truncations, infos
+    def get_final_metric(self, observations):
+            acc = observations[self.agents[0]]['public_accusation']
+            defense = observations[self.agents[0]]['public_defense']
+            self.v_acc_v = np.sum(
+                acc[np.ix_(self.villagers,self.villagers)]  #this filters for only those entries where the row is within
+                                                            #the villager index and the column is within the villager index
+                                                            #ie how many times a villager accused a villager
+            )
+            self.v_acc_w = np.sum(
+                acc[np.ix_(self.villagers,self.wolves)]  
+            )
+            self.v_def_w = np.sum(
+                defense[np.ix_(self.villagers, self.wolves)] #this filters for only those entries where the row is within
+                                                             #the villager index and the column is within the wolf index
+                                                             #ie how many times a villager defended a wolf
+            )
+            self.v_def_v = np.sum(
+                defense[np.ix_(self.villagers, self.villagers)] 
+            )
