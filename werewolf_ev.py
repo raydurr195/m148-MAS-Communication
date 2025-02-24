@@ -18,12 +18,12 @@ class werewolf(ParallelEnv):
         self.comm_max = comm_rounds #there is a maximum number of communication rounds equal to comm_rounds for phase 0
         #we have multiple comm_rounds per day to simulate agents being able to reply to each other
         self.act_space = spaces.MultiDiscrete([
-                4, 
+                3, 
                 self.num_players  
         ])
         #this action space is divided into two different discrete spaces 
-        #this space goes from 0-3 and is used in all stages
-        #in the communication stage: 0 is lie, 1 is accuse, 2 is tell truth, 3 is defend
+        #this space goes from 0-2 and is used in all stages
+        #in the communication stage: 0 is defend, 1 is accuse, 2 is to do nothing
         # all other phases any entry will represent a vote action or for seer the watch option
         #the second is the target and is used in all stages
         self.obs_space = spaces.Dict({
@@ -75,11 +75,14 @@ class werewolf(ParallelEnv):
         info = {agent: {'role' : spaces.unflatten(self.obs_space,self.state[agent])} for agent in self.agents} #log the role of each agent within their infos
         self.infos = info
 
+        #store accussation and defense matrices
+        self.acc = np.zeros((self.num_players,self.num_players), dtype=np.float64)
+        self.defense = np.zeros((self.num_players,self.num_players), dtype=np.float64)
         #custom metrics to be used within callback feature on episode end
-        self.v_acc_v = 0 #frequency that villagers accuse other villagers
-        self.v_acc_w = 0 #frequency that villagers accuse wolves
-        self.v_def_v = 0 #frequency that villagers defend other villagers
-        self.v_def_w = 0 #frequency that villagers defend wolves
+        self.v_acc_v = 0 #number of times villagers accuse other villagers
+        self.v_acc_w = 0 #number of times accuse wolves
+        self.v_def_v = 0 #number of times villagers defend other villagers
+        self.v_def_w = 0 #number of times villagers defend wolves
         self.suicide = 0 #number of times that agents vote to kill themselves
         self.win = 2 #who wins: 0 represents villagers, 1 represents wolves, and 2 represents a draw
         self.vill_reward = 0 #the total rewards for the villager team
@@ -190,17 +193,19 @@ class werewolf(ParallelEnv):
                         target = action[1]  # agent they accuse
                         accusations[agent_id,target] +=1
                         
-                    elif action[0] == 3: #if the agent decides to defend another agent
+                    elif action[0] == 0: #if the agent decides to defend another agent
                         target = action[1]
                         defenses[agent_id,target] += 1
+            self.acc += accusations
+            self.defense += defenses
             self.comm_round += 1
             if self.comm_round >= (self.comm_max-1): # move onto voting phase
                 #self.comm_round = 0
                 self.phase = 2
             for agent in self.agents:
                 #update all agents accusations and defenses matrix
-                observations[agent]['public_accusation'] += accusations
-                observations[agent]['public_defense'] += defenses
+                observations[agent]['public_accusation'] = self.acc
+                observations[agent]['public_defense'] = self.defense
                 observations[agent]['comm_round'] = np.array(self.comm_round,dtype = np.int32).reshape((1,1))
                 observations[agent]['phase'] = np.array(self.phase,dtype = np.int32).reshape((1,1))
             
@@ -262,7 +267,7 @@ class werewolf(ParallelEnv):
                 else:
                     rewards[agent] = -100  # Villagers lose
                     self.vill_reward += rewards[agent]
-            self.get_final_metric(observations)
+            self.get_final_metric()
 
 
         elif num_werewolves == 0: #villager win conditions
@@ -277,12 +282,14 @@ class werewolf(ParallelEnv):
                 else:
                     rewards[agent] = -100  # Werewolves lose
                     self.wolf_reward += rewards[agent]
-            self.get_final_metric(observations)
+            self.get_final_metric()
 
 
         # check for truncations
         if self.day >= (self.max_days-1):
             truncations = {agent: True for agent in self.agents}
+            self.get_final_metric()
+
 
         
         # update observations (???)
@@ -295,9 +302,9 @@ class werewolf(ParallelEnv):
             }
         }
         return observations, rewards, terminations, truncations, infos
-    def get_final_metric(self, observations):
-            acc = observations[self.agents[0]]['public_accusation']
-            defense = observations[self.agents[0]]['public_defense']
+    def get_final_metric(self):
+            acc = self.acc
+            defense = self.defense
             self.v_acc_v = np.sum(
                 acc[np.ix_(self.villagers,self.villagers)]  #this filters for only those entries where the row is within
                                                             #the villager index and the column is within the villager index

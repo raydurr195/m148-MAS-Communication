@@ -52,7 +52,7 @@ obs_spaces = {agent: env.observation_space(agent) for agent in env.possible_agen
 act_spaces = {agent: env.action_space(agent) for agent in env.possible_agents}
 
 # Directory to save training results
-save_path = "/Users/sia/Library/CloudStorage/OneDrive-UCLAITServices/math m148/werewolf_training"
+save_path = "C:/Users/Owner/Desktop/m148"
 os.makedirs(save_path, exist_ok=True)
 
 
@@ -89,7 +89,7 @@ config = (
 tune.run(
     "PPO",
     name="werewolf_training",
-    stop={"training_iteration": 100}, 
+    stop={"training_iteration": 3}, 
     config=config.to_dict(),
     checkpoint_at_end=True,
     storage_path=save_path  

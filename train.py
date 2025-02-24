@@ -84,17 +84,22 @@ config = (
         entropy_coeff=0.01,
         clip_param=0.2
     )
-    .resources(
-        num_gpus=0,
-        num_cpus=4,
-    )
+    # .resources(
+    #     num_gpus=0,
+    #     num_cpus=4,
+    # )
     .multi_agent(
         policies={
             "villager_policy": (None, obs_spaces["player_0"], act_spaces["player_0"], {}),
-            "werewolf_policy": (StaticWerewolfPolicy, obs_spaces["player_0"], act_spaces["player_0"], {})
+            #"werewolf_policy": (StaticWerewolfPolicy, obs_spaces["player_0"], act_spaces["player_0"], {})
+            "werewolf_policy": (None, obs_spaces["player_0"], act_spaces["player_0"], {})
         },
         policy_mapping_fn=policy_mapping_fn,
         policies_to_train=["villager_policy"]  # Only train the villager policy
+    )
+    .api_stack(
+        enable_rl_module_and_learner=False, 
+        enable_env_runner_and_connector_v2=False
     )
 )
 
@@ -104,8 +109,8 @@ tune.run(
     name="werewolf_training",
     stop={"training_iteration": 10000},
     config=config.to_dict(),
-    num_samples=1,  # Number of times to sample from the hyperparameter space.
-    storage_path="/workspaces/m148-MAS-Communication/training_results",  # Local path in workspace
+    #num_samples=1,  # Number of times to sample from the hyperparameter space.
+    #storage_path="/workspaces/m148-MAS-Communication/training_results",  # Local path in workspace
     checkpoint_freq=100,
     checkpoint_at_end=True,
     # Remove the resources_per_trial parameter since PPO handles this automatically
