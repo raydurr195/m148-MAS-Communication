@@ -10,6 +10,24 @@ from ray.rllib.models.catalog import ModelCatalog
 from ray.rllib.models.torch.fcnet import FullyConnectedNetwork
 import os
 from static_wolf_policy import StaticWerewolfPolicy
+from ray.rllib.algorithms.callbacks import DefaultCallbacks
+
+#Callbacks
+
+class WerewolfCustomMetricsCallback(DefaultCallbacks):
+    def on_episode_end(self, *, worker, base_env, policies, episode, env_index=None, **kwargs):
+       
+        wrapped_env = base_env.get_sub_environments()[0]  # This is ParallelPettingZooEnv
+        real_env = wrapped_env.par_env                    # We access its underlying "par_env", which should be a `werewolf` instance.
+
+        episode.custom_metrics["v_acc_v"] = real_env.v_acc_v
+        episode.custom_metrics["v_acc_w"] = real_env.v_acc_w
+        episode.custom_metrics["v_def_v"] = real_env.v_def_v
+        episode.custom_metrics["v_def_w"] = real_env.v_def_w
+        episode.custom_metrics["suicide"] = real_env.suicide
+        episode.custom_metrics["win"] = real_env.win
+        episode.custom_metrics["vill_reward"] = real_env.vill_reward
+        episode.custom_metrics["wolf_reward"] = real_env.wolf_reward
 
 env_name = "werewolf-v1"
 
@@ -54,6 +72,7 @@ config = (
             "max_days": 15
         }
     )
+    .callbacks(WerewolfCustomMetricsCallback)
     .framework("torch")
     .training(
         train_batch_size=4096,
