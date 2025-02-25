@@ -104,7 +104,8 @@ config = (
         enable_env_runner_and_connector_v2=False
     )
     .env_runners(
-        num_env_runners = 6
+        num_env_runners = 6,
+        #num_cpus_per_env_runner = 1
     )
 )
 
@@ -112,9 +113,9 @@ config = (
 tune.run(
     "PPO",
     name="werewolf_training",
-    stop={"training_iteration": 1000},
+    stop={"training_iteration": 2},
     config=config.to_dict(),
     #storage_path="/workspaces/m148-MAS-Communication/training_results",  # Local path in workspace
-    checkpoint_freq=100,
+    checkpoint_freq=1,
     checkpoint_at_end=True,
 )
