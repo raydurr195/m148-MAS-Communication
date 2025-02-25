@@ -14,7 +14,7 @@ class StaticWerewolfPolicy(Policy):
                        info_batch=None,
                        episodes=None,
                        **kwargs):
-        num_players = 7
+        num_players = 6
         # Define observation space structure
         obs_space = spaces.Dict({
             'role': spaces.MultiDiscrete([3 for i in range(num_players)]),

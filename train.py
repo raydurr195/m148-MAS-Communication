@@ -2,6 +2,7 @@ from ray.tune.registry import register_env
 from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
 from ray.rllib.algorithms.ppo import PPOConfig
 from ray import tune
+import ray
 from ray.train import SyncConfig
 from werewolf_ev import werewolf
 import torch
@@ -12,6 +13,7 @@ import os
 from static_wolf_policy import StaticWerewolfPolicy
 from ray.rllib.algorithms.callbacks import DefaultCallbacks
 
+ray.init()
 #Callbacks
 
 class WerewolfCustomMetricsCallback(DefaultCallbacks):
@@ -48,7 +50,7 @@ def policy_mapping_fn(agent_id, episode, worker, **kwargs):
     return "werewolf_policy" if ag_id in wolves else "villager_policy"
 
 # Initialize environment
-env = werewolf(num_players=7, comm_rounds=4, num_wolf=1, max_days=15)
+env = werewolf(num_players=6, comm_rounds=4, num_wolf=1, max_days=15)
 obs_spaces = {agent: env.observation_space(agent) for agent in env.possible_agents}
 act_spaces = {agent: env.action_space(agent) for agent in env.possible_agents}
 
@@ -68,7 +70,7 @@ config = (
     .environment(
         env=env_name, 
         env_config={
-            "num_players": 7, 
+            "num_players": 6, 
             "comm_rounds": 4, 
             "num_wolf": 1, 
             "max_days": 15
@@ -87,8 +89,8 @@ config = (
         clip_param=0.2
     )
      .resources(
-         num_gpus=0,
-         num_cpus_per_worker = 1
+         #num_gpus_per_learner=1,
+         #num_cpus_per_worker = 1
      )
     .multi_agent(
         policies={
@@ -105,7 +107,7 @@ config = (
     )
     .env_runners(
         num_env_runners = 6,
-        #num_cpus_per_env_runner = 1
+        num_cpus_per_env_runner = 1
     )
 )
 
@@ -113,9 +115,11 @@ config = (
 tune.run(
     "PPO",
     name="werewolf_training",
-    stop={"training_iteration": 2},
+    stop={"training_iteration": 100},
     config=config.to_dict(),
     #storage_path="/workspaces/m148-MAS-Communication/training_results",  # Local path in workspace
-    checkpoint_freq=1,
+    checkpoint_freq=50,
     checkpoint_at_end=True,
 )
+
+ray.shutdown()
