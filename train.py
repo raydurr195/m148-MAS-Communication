@@ -43,7 +43,9 @@ def env_creator(config):
 register_env(env_name, lambda config: env_creator(config))
 
 def policy_mapping_fn(agent_id, episode, worker, **kwargs):
-    return "villager_policy" if "villager" in agent_id else "werewolf_policy"
+    wolves = worker.env.par_env.wolves
+    ag_id = int(agent_id.split('_')[1])
+    return "werewolf_policy" if ag_id in wolves else "villager_policy"
 
 # Initialize environment
 env = werewolf(num_players=7, comm_rounds=4, num_wolf=1, max_days=15)
@@ -84,15 +86,15 @@ config = (
         entropy_coeff=0.01,
         clip_param=0.2
     )
-    # .resources(
-    #     num_gpus=0,
-    #     num_cpus=4,
-    # )
+     .resources(
+         num_gpus=0,
+         num_cpus_per_worker = 1
+     )
     .multi_agent(
         policies={
             "villager_policy": (None, obs_spaces["player_0"], act_spaces["player_0"], {}),
-            #"werewolf_policy": (StaticWerewolfPolicy, obs_spaces["player_0"], act_spaces["player_0"], {})
-            "werewolf_policy": (None, obs_spaces["player_0"], act_spaces["player_0"], {})
+            "werewolf_policy": (StaticWerewolfPolicy, obs_spaces["player_0"], act_spaces["player_0"], {})
+            #"werewolf_policy": (None, obs_spaces["player_0"], act_spaces["player_0"], {})
         },
         policy_mapping_fn=policy_mapping_fn,
         policies_to_train=["villager_policy"]  # Only train the villager policy
@@ -101,17 +103,18 @@ config = (
         enable_rl_module_and_learner=False, 
         enable_env_runner_and_connector_v2=False
     )
+    .env_runners(
+        num_env_runners = 6
+    )
 )
 
 # Training with more iterations
 tune.run(
     "PPO",
     name="werewolf_training",
-    stop={"training_iteration": 10000},
+    stop={"training_iteration": 1000},
     config=config.to_dict(),
-    #num_samples=1,  # Number of times to sample from the hyperparameter space.
     #storage_path="/workspaces/m148-MAS-Communication/training_results",  # Local path in workspace
     checkpoint_freq=100,
     checkpoint_at_end=True,
-    # Remove the resources_per_trial parameter since PPO handles this automatically
 )
