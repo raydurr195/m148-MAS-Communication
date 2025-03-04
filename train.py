@@ -95,8 +95,8 @@ config = (
     .multi_agent(
         policies={
             "villager_policy": (None, obs_spaces["player_0"], act_spaces["player_0"], {}),
-            #"werewolf_policy": (StaticWerewolfPolicy, obs_spaces["player_0"], act_spaces["player_0"], {})
-            "werewolf_policy": (None, obs_spaces["player_0"], act_spaces["player_0"], {})
+            "werewolf_policy": (StaticWerewolfPolicy, obs_spaces["player_0"], act_spaces["player_0"], {})
+            #"werewolf_policy": (None, obs_spaces["player_0"], act_spaces["player_0"], {})
         },
         policy_mapping_fn=policy_mapping_fn,
         policies_to_train=["villager_policy", "werewolf_policy"]  # Only train the villager policy
@@ -116,12 +116,12 @@ cwd = os.getcwd()
 tune.run(
     "PPO",
     name="werewolf_training",
-    stop={"training_iteration": 400},
+    stop={"training_iteration": 1600},
     config=config.to_dict(),
-    storage_path= cwd + "/no_static",  # Local path in workspace
+    storage_path= cwd + "/static",  # Local path in workspace
     checkpoint_freq=50,
     checkpoint_at_end=True,
-    #restore = cwd + "/with_seer_results/werewolf_training/PPO_werewolf-v1_0a6e8_00000_0_2025-02-27_13-01-40/checkpoint_000012"
+    #restore = cwd + "/no_static/werewolf_training/PPO_werewolf-v1_d284d_00000_0_2025-02-28_06-39-32/checkpoint_000007"
 )
 
 ray.shutdown()
