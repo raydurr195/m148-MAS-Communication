@@ -99,7 +99,7 @@ config = (
             #"werewolf_policy": (None, obs_spaces["player_0"], act_spaces["player_0"], {})
         },
         policy_mapping_fn=policy_mapping_fn,
-        policies_to_train=["villager_policy", "werewolf_policy"]  # Only train the villager policy
+        policies_to_train=["villager_policy"]  # Only train the villager policy
     )
     .api_stack(
         enable_rl_module_and_learner=False, 
