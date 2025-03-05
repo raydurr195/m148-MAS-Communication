@@ -28,8 +28,8 @@ The amount of agents, rounds, werewolf, days can be changed in the werewolf_ev.p
 
 ### Installing
 
-* (Insert a txt file for all libraries used)
 * Clone the repository
+* Note: there could be some issues regarding windows installation as the RAY package may not install correctly.
 ```
 git clone https://github.com/raydurr195/m148-MAS-Communication.git
 ```
