@@ -100,6 +100,7 @@ config = (
         },
         policy_mapping_fn=policy_mapping_fn,
         policies_to_train=["villager_policy"]  # Only train the villager policy
+        #policies_to_train["villager_policy", "werewolf_policy"]
     )
     .api_stack(
         enable_rl_module_and_learner=False, 
