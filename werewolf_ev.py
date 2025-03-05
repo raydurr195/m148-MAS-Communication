@@ -8,13 +8,18 @@ class werewolf(ParallelEnv):
     metadata = {'name' : 'werewolf_v1'}
 
     def __init__(self, num_players = 7, comm_rounds = 4, num_wolf = 1, max_days = 15):
+        """
+        Initializes the environment by setting the number of players, communication rounds, wolves, and days.
+        Defines the action and observation spaces. 
+        Generates a list of possible agents with their corresponding roles and game parameters. 
+        """
         super().__init__()
         self.render_mode = None
         self.num_players = num_players
         self.num_wolf = num_wolf
         self.roles = ['werewolf', 'villager']
 
-        self.max_days = max_days #maximum number of days
+        self.max_days = max_days 
         self.comm_max = comm_rounds #there is a maximum number of communication rounds equal to comm_rounds for phase 0
         #we have multiple comm_rounds per day to simulate agents being able to reply to each other
         self.act_space = spaces.MultiDiscrete([
@@ -46,21 +51,27 @@ class werewolf(ParallelEnv):
         self.possible_agents = [f'player_{i}' for i in range(self.num_players)]
     
     def action_space(self, agent):
+        """
+        returns the actions space for a given agent
+        """
         return self.act_space
-                
-    
-                
+                 
     def observation_space(self, agent):
+        """
+        returns the flattened observation space for a given agent
+        """
         return spaces.flatten_space(self.obs_space)
     
     def reset(self, *, seed = None, options = None):
-        #initializes a new enviornment
+        """
+        Initializes a new environment by assigning roles to agents, setting up
+        parameters, and resetting matrices and metrics
+        """
         self.agents = self.possible_agents[:] #selects agents from possible agents
 
         # assign wolves
         wolves = np.random.choice(len(self.agents), size = self.num_wolf, replace = False) #randomly choose num_wolf amount of wolves from the agents(these are index numbers)
         self.wolves = wolves #stores index number of wolves
-        #//should remember to delete the entry if wolf is eliminated
 
         # assign villagers and seer
         villager_indices = [i for i in range(self.num_players) if i not in self.wolves]
@@ -90,6 +101,10 @@ class werewolf(ParallelEnv):
         return obs, info
 
     def get_obs_res(self):
+        """
+        generates dictionary of observations for each agent, including their role,
+        public actions, trust levels, life status, and other game info
+        """
         observations = {}
         for agent in self.agents:
             agent_id = int(agent.split('_')[1])
@@ -119,7 +134,7 @@ class werewolf(ParallelEnv):
     
     def step(self, actions):
         """
-        Update the game state based on actions
+        Updates the game state based on actions
 
         Parameters:
             actions (dict) : dict mapping each agent to their chosen action
@@ -129,10 +144,6 @@ class werewolf(ParallelEnv):
             rewards (dict) : rewards for each agent
             terminations (dict) : whether the game has ended by game rules
             truncations (dict) : whether the game has ended by hitting max days
-
-        TODO: add verbose option??? to print state of game after each day
-        TODO: filter so that only living agents can participate
-        TODO: use the update_life_status helper function
         """
 
         # initialize rewards and termination/truncation flags
@@ -179,7 +190,6 @@ class werewolf(ParallelEnv):
                 agent_id = int(agent.split('_')[1])
                 # only alive agents communicate
                 if observations[agent]['life_status'][agent_id] == 1:  
-                    #maybe punish for voting for a dead person/voting when you are dead?
                     if action[0] == 1:#if the agent decides to accuse another agent
                         target = action[1]  # agent they accuse
                         accusations[agent_id,target] +=1
@@ -262,7 +272,6 @@ class werewolf(ParallelEnv):
                     self.vill_reward += rewards[agent]
             self.get_final_metric()
 
-
         elif num_werewolves == 0: #villager win conditions
             terminations = {agent: True for agent in self.agents}
             self.win = 0 #villagers win
@@ -277,20 +286,23 @@ class werewolf(ParallelEnv):
                     self.wolf_reward += rewards[agent]
             self.get_final_metric()
 
-
         # check for truncations
         if self.day >= (self.max_days-1):
             truncations = {agent: True for agent in self.agents}
             self.get_final_metric()
 
-
-        
-        # update observations (???)
+        # update observations 
         #note that we should be updating observations after each phase
         observations = {agent : spaces.flatten(self.obs_space, obs) for agent, obs in observations.items()}
         self.state = observations
         return observations, rewards, terminations, truncations, infos
+    
     def get_final_metric(self):
+        """
+        calculates metrics based on villagers' accusations and defenses, 
+        incl the total number of accusations and defenses among villagers and 
+        between villagers and wolves
+        """
             acc = self.acc
             defense = self.defense
             self.v_acc_v = np.sum(
