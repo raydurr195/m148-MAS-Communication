@@ -21,18 +21,18 @@ Agents are randomly assigned roles. Every night a werewolf chooses a villager to
 ## Settings
 There is a static and non-static training model. The static training model is used to compare results with the model trained using PPO algorithm. The model is set to static on default. This can be changed by commenting out the following code:... (WIP) 
 
-The amount of agents, rounds, werewolf, days can be changed in the werewolf_ev.py file. (maybe add an easy way to change the settings at the very top) ------ (WIP) 
+The amount of agents, rounds, werewolf, days can be changed in the werewolf_ev.py file at the top under variables.
 
 ### Installing
 
 * (Insert a txt file for all libraries used)
 * Clone the repository
 ```
-git clone ...
+git clone https://github.com/raydurr195/m148-MAS-Communication.git
 ```
 * Navigate folder
 ```
-cd werewolf...
+cd ...
 ```
 * Install dependencies
 ```
@@ -40,16 +40,11 @@ pip install -r requirements.txt
 ```
 * Run 
 ```
-python ...py
+python train.py
 ```
 
-### Executing program
+Depending on how many rounds, the computational time could take a bit. 
 
-* How to run the program
-* Step-by-step bullets
-```
-code blocks for commands
-```
 
 ## Authors
 
