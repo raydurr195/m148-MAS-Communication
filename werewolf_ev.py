@@ -26,11 +26,13 @@ class werewolf(ParallelEnv):
                 3, 
                 self.num_players  
         ])
-        #this action space is divided into two different discrete spaces 
-        #this space goes from 0-2 and is used in all stages
-        #in the communication stage: 0 is defend, 1 is accuse, 2 is to do nothing
-        # all other phases any entry will represent a vote action or for seer the watch option
-        #the second is the target and is used in all stages
+        """
+        This action space is divided into two different discrete spaces.
+        This space goes from 0-2 and is used in all stages.
+        In the communication stage: 0 is defend, 1 is accuse, 2 is to do nothing
+         all other phases any entry will represent a vote action or for seer the watch option.
+        The second is the target and is used in all stages.
+        """
         self.obs_space = spaces.Dict({
             'role': spaces.MultiDiscrete([3 for i in range(self.num_players)]), #0 is villager, 1 is werewolf
             'public_accusation': spaces.Box(low=0, high=np.inf, shape=(self.num_players, self.num_players), dtype=np.float64),
@@ -114,7 +116,6 @@ class werewolf(ParallelEnv):
             elif agent_id == self.seer:
                 role[agent_id] = 2  # seer
     
-
             obs_n = {
             'role': role,
             'public_accusation': np.zeros((self.num_players,self.num_players), dtype=np.float64),
@@ -129,8 +130,6 @@ class werewolf(ParallelEnv):
         }
             observations.update({agent : spaces.flatten(self.obs_space, obs_n)})
         return observations
-    
-
     
     def step(self, actions):
         """
@@ -147,7 +146,6 @@ class werewolf(ParallelEnv):
         """
 
         # initialize rewards and termination/truncation flags
-        # move the below to reset function
         observations = self.state
         observations = {agent : spaces.unflatten(self.obs_space, obs) for agent, obs in observations.items()}
         #actions = {agent : spaces.unflatten(self.act_space, action) for agent,action in actions.items()}
@@ -156,7 +154,7 @@ class werewolf(ParallelEnv):
         truncations = {agent: False for agent in self.agents}
         infos = {agent: {} for agent in self.agents}
         phase = self.phase
-        # actions based on current phase
+        
         # NIGHT
         if phase == 0:
             # Night phase
@@ -182,7 +180,7 @@ class werewolf(ParallelEnv):
                 observations[agent]['life_status'][target] = 0
                 observations[agent]['phase'] = np.array(self.phase, dtype = np.int32).reshape((1,1))
 
-        # DAY: communication phase
+        # DAY: Communication phase
         elif phase == 1 : 
             accusations = np.zeros((self.num_players,self.num_players), dtype=np.float64) #store new accusations
             defenses = np.zeros((self.num_players,self.num_players), dtype=np.float64) #stores new defenses
@@ -193,7 +191,6 @@ class werewolf(ParallelEnv):
                     if action[0] == 1:#if the agent decides to accuse another agent
                         target = action[1]  # agent they accuse
                         accusations[agent_id,target] +=1
-                        
                     elif action[0] == 0: #if the agent decides to defend another agent
                         target = action[1]
                         defenses[agent_id,target] += 1
@@ -225,7 +222,6 @@ class werewolf(ParallelEnv):
                     votes[0,target] += 1
                     if int(agent.split('_')[1]) == target: #if an agent votes for themselves update the suicide attribute
                         self.suicide += 1
-
             # eliminate agent that gets the most votes
             max_votes = np.max(votes)
             targets = np.where(votes== max_votes)[1]
@@ -236,7 +232,6 @@ class werewolf(ParallelEnv):
                 observations[agent]['comm_round'][0] = np.array(self.comm_round,dtype=np.int32).reshape((1,1))
                 observations[agent]['phase'][0] = np.array(self.phase,dtype=np.int32).reshape((1,1))
                 observations[agent]['day'][0] = np.array(self.day,dtype=np.int32).reshape((1,1))
-
 
         # Reward agents for surviving another day
         for agent in self.agents:
@@ -292,7 +287,6 @@ class werewolf(ParallelEnv):
             self.get_final_metric()
 
         # update observations 
-        #note that we should be updating observations after each phase
         observations = {agent : spaces.flatten(self.obs_space, obs) for agent, obs in observations.items()}
         self.state = observations
         return observations, rewards, terminations, truncations, infos
@@ -303,21 +297,21 @@ class werewolf(ParallelEnv):
         incl the total number of accusations and defenses among villagers and 
         between villagers and wolves
         """
-            acc = self.acc
-            defense = self.defense
-            self.v_acc_v = np.sum(
-                acc[np.ix_(self.villagers,self.villagers)]  #this filters for only those entries where the row is within
-                                                            #the villager index and the column is within the villager index
-                                                            #ie how many times a villager accused a villager
-            )
-            self.v_acc_w = np.sum(
-                acc[np.ix_(self.villagers,self.wolves)]  
-            )
-            self.v_def_w = np.sum(
-                defense[np.ix_(self.villagers, self.wolves)] #this filters for only those entries where the row is within
-                                                             #the villager index and the column is within the wolf index
-                                                             #ie how many times a villager defended a wolf
-            )
-            self.v_def_v = np.sum(
-                defense[np.ix_(self.villagers, self.villagers)] 
-            )
+        acc = self.acc
+        defense = self.defense
+        self.v_acc_v = np.sum(
+            acc[np.ix_(self.villagers,self.villagers)]  #this filters for only those entries where the row is within
+                                                        #the villager index and the column is within the villager index
+                                                        #ie how many times a villager accused a villager
+        )
+        self.v_acc_w = np.sum(
+            acc[np.ix_(self.villagers,self.wolves)]  
+        )
+        self.v_def_w = np.sum(
+            defense[np.ix_(self.villagers, self.wolves)] #this filters for only those entries where the row is within
+                                                            #the villager index and the column is within the wolf index
+                                                            #ie how many times a villager defended a wolf
+        )
+        self.v_def_v = np.sum(
+            defense[np.ix_(self.villagers, self.villagers)] 
+        )
