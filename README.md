@@ -2,11 +2,14 @@
 
 **Werewolf** is a social deduction game where there are villagers and werewolf. The goal is for werewolf to eliminate all the villagers. While the villagers try to find the werewolf and vote them out. The goal of our project is to create a Multi-Agent Reinforcement Learning model to simulate **Werewolf**, a popular social deduction game and identify AI decision-making.
 
-## Description
+## Features
 
-**AI Agents:** Used to simulate players action.
+**AI Agents:** Used to simulate players action. 
+
 **Roles:** There are two different roles: Villagers and Werewolf. (More can be added such as a seer)
+
 **Reinforcement Learning:** Uses [**Ray**]([url](https://www.ray.io/)) library to implement PPO training algorithm onto the agents
+
 **Customizable Rules**: Modify rounds, amount of villagers / werewolf to simulate different scenarios
 
 ## Rules
