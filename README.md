@@ -22,7 +22,11 @@ Agents are randomly assigned roles. Every night a werewolf chooses a villager to
 * [Python]([url](https://www.python.org/downloads/)) 3.13.2 (This is the version we used - other version may be usable but not guarenteed)
 
 ## Settings
-There is a static and non-static training model. The static training model is used to compare results with the model trained using PPO algorithm. The model is set to static on default. This can be changed by commenting out the following code:... (WIP) 
+There is a static and non-static training model. The static training model is used to compare results with the model trained using PPO algorithm. The model is set to static on default. This can be changed by commenting out the following code under train.py line 99-100:
+```
+#"werewolf_policy": (StaticWerewolfPolicy, obs_spaces["player_0"], act_spaces["player_0"], {})
+"werewolf_policy": (None, obs_spaces["player_0"], act_spaces["player_0"], {})
+```
 
 The amount of agents, rounds, werewolf, days can be changed in the werewolf_ev.py file at the top under variables.
 
