@@ -39,7 +39,7 @@ git clone https://github.com/raydurr195/m148-MAS-Communication.git
 ```
 * Navigate folder
 ```
-cd ...
+cd your_working_directory
 ```
 * Install dependencies
 ```
